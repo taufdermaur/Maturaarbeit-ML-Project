@@ -11,7 +11,7 @@ print(scalar.item())
 
 # Vector
 vector = torch.tensor([7, 7])
-vector
+print(vector)
 # Check the number of dimensions of vector
 print(vector.ndim)
 # Check shape of vector
@@ -32,13 +32,13 @@ TENSOR = torch.tensor([[[1, 2, 3],
                         [3, 6, 9],
                         [2, 4, 5]]])
 print(TENSOR)
-print(TENSOR.ndim)
+print(TENSOR.ndim, "one three by three matrix")
 print(TENSOR.shape)
 
 random_tensor = torch.rand(size=(3, 4))
 print(random_tensor, random_tensor.dtype)
 
-random_image_size_tensor = torch.rand(size=(224, 224, 3))
+random_image_size_tensor = torch.rand(size=(224, 224, 3)) # 3 channels (RGB) of 224x224 pixels
 print(random_image_size_tensor.shape, random_image_size_tensor.ndim)    
 
 # Create a tensor of all zeros
@@ -53,6 +53,9 @@ print(ones, ones.dtype)
 # Create a range of values 0 to 10
 zero_to_ten = torch.arange(start=0, end=10, step=1)
 
+# Creating tensors like
+ten_zeroes = torch.zeros_like(input=zero_to_ten)
+print(ten_zeroes)
 
 tensor = torch.tensor([1, 2, 3])
 print(tensor.shape)
