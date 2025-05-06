@@ -57,14 +57,36 @@ zero_to_ten = torch.arange(start=0, end=10, step=1)
 ten_zeroes = torch.zeros_like(input=zero_to_ten)
 print(ten_zeroes)
 
+# Tensor Datatypes
+float_32_tensor = torch.tensor([1.0, 2.0, 3.0], 
+                               dtype=None, # what datatype is the tensor (e.g. float32, int64, etc.)
+                               device="cpu", # what device is your tensor on (e.g. cpu, cuda, None)
+                               requires_grad=False) # whether or not to track gradients with this tensor
+print(float_32_tensor, float_32_tensor.dtype)
+
+float_16_tensor = float_32_tensor.type(torch.float16)
+print(float_16_tensor, float_16_tensor.dtype)
+
+int_64_tensor = torch.tensor([1, 2, 3], dtype=torch.int64)
+print(int_64_tensor, int_64_tensor.dtype)
+
+
+print("\n") 
+print("\n") 
+# Tensor Operations (Manipulating Tensors)
 tensor = torch.tensor([1, 2, 3])
 print(tensor.shape)
+print(tensor + 10) # Add 10 to each element in the tensor
+print(tensor * 10) # Multiply each element in the tensor by 10
+
+print(torch.mul(tensor, 10)) # Multiply each element in the tensor by 10
+
 # Element-wise matrix multiplication
 print(tensor * tensor)
 # Matrix multiplication
 print(torch.matmul(tensor, tensor))
 
-# Transose tensor
+# TRANSPOSE tensor
 # Shapes need to be in the right way  
 tensor_A = torch.tensor([[1, 2],
                          [3, 4],
@@ -80,17 +102,59 @@ print(tensor_B)
 print(tensor_A)
 print(tensor_B.T)
 
+print(torch.matmul(tensor_A, tensor_B.T)) #If without ".T" then: RuntimeError: mat1 and mat2 shapes cannot be multiplied (3x2 and 3x2)
+
+print("\n")
+print("\n")
+print("\n")
+
 # Finding the min, max, mean, sum, etc (aggregation)
 # Create a tensor
-x = torch.arange(0, 100, 10)
-print(x)
+x = torch.arange(1, 100, 10) # 1 to 100 with step 10
+print(x, x.shape, x.dtype)
 
-print(f"Minimum: {x.min()}")
-print(f"Maximum: {x.max()}")
+print(f"Minimum: {x.min()} or {torch.min(x)}")
+print(f"Maximum: {x.max()} or {torch.max(x)}")
+
 # print(f"Mean: {x.mean()}") # this will error
-print(f"Mean: {x.type(torch.float32).mean()}") # won't work without float datatype
-print(f"Sum: {x.sum()}")
+print(f"Mean: {x.type(torch.float32).mean()} or {torch.mean(x.type(torch.float32))}") # won't work without float datatype; int64 won't work
+print(f"Sum: {x.sum()} or {torch.sum(x)}")
 
+# position of max and min value
+print(f"Position of max value: {x.argmax()} or {torch.argmax(x)}") # returns the index of the max value
+print(f"Position of min value: {x.argmin()} or {torch.argmin(x)}") # returns the index of the min value
+
+print("\n")
+print("\n")
+print("\n")
+# Reshaping, stacking, squeezing and unsqueezing tensors
+y = torch.arange(1., 10.)
+print(y, y.shape, y.ndim)
+
+y_reshaped = y.reshape(1, 9) # reshape to 1 row and 9 columns
+y_reshaped2 = y.reshape(9, 1) # reshape to 9 rows and 1 column
+
+z = y.view(1, 9) # view the tensor as 1 row and 9 columns
+print(z, z.shape, z.ndim) # view doesn't create a new tensor, it just changes the view of the original tensor
+
+z[:, 0] = 5 # change the first element of z to 5
+print(z, y) # this will also change the first element of y to 5 because z is just a view of y
+
+y_stacked = torch.stack([y,y,y,y], dim=0) # stack the tensor along the first dimension (rows)
+print(y_stacked)
+
+print("\n")
+print(y_reshaped)
+y_reshaped_squeezed = y_reshaped.squeeze() # remove all single dimensions (1D) from a tensor
+print(y_reshaped_squeezed)
+# torch.Size([1, 9]) -> torch.Size([9]) here we remove the first dimension (1 row)
+
+y_reshaped_unsqueezed = y_reshaped_squeezed.unsqueeze(dim=0)
+print(y_reshaped_unsqueezed) # add a new dimension (1D) to the tensor
+
+print("\n")
+print("\n")
+print("\n")
 # Change tensor datatype
 # Create a tensor and check its datatype
 tensor = torch.arange(10., 100., 10.)
