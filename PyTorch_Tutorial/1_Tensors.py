@@ -1,4 +1,7 @@
 import torch
+import pandas
+import matplotlib.pyplot as plt
+import numpy as np
 
 """https://www.learnpytorch.io/00_pytorch_fundamentals/"""
 
@@ -70,14 +73,27 @@ print(float_16_tensor, float_16_tensor.dtype)
 int_64_tensor = torch.tensor([1, 2, 3], dtype=torch.int64)
 print(int_64_tensor, int_64_tensor.dtype)
 
+print("Pytorch Version ", torch.__version__)
 
+# create a line break
+print("\n")  
+
+# Create a tensor
+some_tensor = torch.rand(3, 4)
+print(some_tensor)
+print(f"Datatype: {some_tensor.dtype}") # the f stands for formatted string literals (f-strings) and allows you to embed expressions inside string literals, using curly braces { }.
+print(f"Device: {some_tensor.device}")   
+print(f"Shape; {some_tensor.shape}") 
 print("\n") 
 print("\n") 
+
 # Tensor Operations (Manipulating Tensors)
 tensor = torch.tensor([1, 2, 3])
 print(tensor.shape)
 print(tensor + 10) # Add 10 to each element in the tensor
+print(tensor - 10) # Subtract 10 from each element in the tensor
 print(tensor * 10) # Multiply each element in the tensor by 10
+print(tensor / 10) # Divide each element in the tensor by 10
 
 print(torch.mul(tensor, 10)) # Multiply each element in the tensor by 10
 
@@ -151,6 +167,21 @@ print(y_reshaped_squeezed)
 
 y_reshaped_unsqueezed = y_reshaped_squeezed.unsqueeze(dim=0)
 print(y_reshaped_unsqueezed) # add a new dimension (1D) to the tensor
+
+print("\n")
+print("\n")
+print("\n")
+# Permuting tensors (swapping axes (dimensions))
+x_original = torch.rand(size=(224, 224, 3)) # height, width, color channels (RGB)
+
+x_permuted = x_original.permute(2, 0, 1) # shifts axis 0->1, 1->2, 2->0
+
+x_original[0,0,0] = 8273986 # set the first pixel to 8273986
+print(x_original[0,0,0], x_permuted[0,0,0]) # this will be the same because x_permuted is just a view of x_original
+
+print(f"Previous shape: {x_original.shape}")
+print(f"\nNew shape: {x_permuted.shape}")
+
 
 print("\n")
 print("\n")
