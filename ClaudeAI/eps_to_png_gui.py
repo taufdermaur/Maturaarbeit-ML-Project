@@ -12,6 +12,9 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 from pathlib import Path
 
+from PIL import EpsImagePlugin
+EpsImagePlugin.gs_windows_binary = r"C:\Program Files\gs\gs10.05.1\bin\gswin64c.exe"
+
 
 class EPSToPNGConverter:
     def __init__(self, root):
