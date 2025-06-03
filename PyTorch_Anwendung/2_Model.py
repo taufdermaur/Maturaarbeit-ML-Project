@@ -71,22 +71,3 @@ loss_function = nn.CrossEntropyLoss()
 
 print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}\n")
 
-# Training loop
-def train_model(model, train_loader, optimizer, loss_function, epochs=10):
-    model.train()
-    for epoch in range(epochs):
-        running_loss = 0.0
-        for images, labels in train_loader:
-            images, labels = images.to(device), labels.to(device)
-            
-            optimizer.zero_grad()
-            outputs = model(images)
-            loss = loss_function(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            
-            running_loss += loss.item()
-        
-        print(f"Epoch [{epoch+1}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
-
-train_model(model, train_loader, optimizer, loss_function, epochs=10)
