@@ -53,21 +53,40 @@ class TrafficSignClassifier(nn.Module):
         self.conv1 = nn.Conv2d(3, 10, 3)
         self.conv2 = nn.Conv2d(10, 20, 3)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(20 * 53 * 53, 500) # 20 channels, 53x53 feature map size after two conv layers and pooling
+        self.fc1 = nn.Linear(20 * 38 * 38, 500)
         self.fc2 = nn.Linear(500, len(train_dataset.classes))
     
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 20 * 53 * 53)
+        x = x.view(-1, 20 * 38 * 38)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
 
 # Initialize the model, optimizer, and loss function
 model = TrafficSignClassifier().to(device)
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.0005)
 loss_function = nn.CrossEntropyLoss()
 
 print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}\n")
 
+# Training loop
+def train_model(model, train_loader, optimizer, loss_function, num_epochs=50):
+    model.train()
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
+            
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = loss_function(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            running_loss += loss.item()
+        
+        print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}")
+
+train_model(model, train_loader, optimizer, loss_function, num_epochs=50)
