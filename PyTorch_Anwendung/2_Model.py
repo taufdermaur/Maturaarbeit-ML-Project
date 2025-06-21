@@ -34,8 +34,10 @@ test_dataset = torchvision.datasets.ImageFolder(data_dir_test, transform=transfo
 # DataLoader
 train_loader = torch.utils.data.DataLoader(
                     train_dataset, 
-                    batch_size=32, 
-                    num_workers=0)
+                    batch_size=32,
+                    shuffle=True, 
+                    num_workers=0,
+                    pin_memory=True)
 test_loader = torch.utils.data.DataLoader(
                     test_dataset, 
                     batch_size=32, 
@@ -69,11 +71,12 @@ model = TrafficSignClassifier().to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.0005)
 loss_function = nn.CrossEntropyLoss()
 
-print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}\n")
+print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}\n------------------------------------------------------------------------")
 
 # Training loop
-def train_model(model, train_loader, optimizer, loss_function, num_epochs=50):
+def train_model(model, train_loader, optimizer, loss_function, num_epochs=15):
     model.train()
+    print("Starting training...")
     for epoch in range(num_epochs):
         running_loss = 0.0
         for images, labels in train_loader:
@@ -88,5 +91,37 @@ def train_model(model, train_loader, optimizer, loss_function, num_epochs=50):
             running_loss += loss.item()
         
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}")
+    print("Training complete.\n-----------------------------------------------------------------------")
 
-train_model(model, train_loader, optimizer, loss_function, num_epochs=50)
+train_model(model, train_loader, optimizer, loss_function, num_epochs=15)
+
+# Validate the model
+def validate_model(model, test_loader):
+    model.eval()
+    correct = 0
+    total = 0
+    print("Validating the model...")
+    with torch.inference_mode():
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1) # Get the index of the max log-probability
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    
+    accuracy = 100 * correct / total
+    print(f"Accuracy of the model on the test set: {accuracy:.2f}%")
+    print(f"Total images: {total}, Correct predictions: {correct}")
+    print("Testing complete.\n-----------------------------------------------------------------------")
+
+validate_model(model, test_loader)
+
+# Save the model
+path = "models"
+model_name = "traffic_sign_classifier.pth"
+model_path = f"{path}/{model_name}"
+
+torch.save(obj=model, f= model_path,)
+print(f"\nModel saved to {model_path}")
+
+

@@ -207,7 +207,7 @@ plot_predictions(predictions=y_preds_new.cpu())
 from pathlib import Path
 
 # 1. Create a model directory
-MODEL_PATH = Path("Models")
+MODEL_PATH = Path("models")
 MODEL_PATH.mkdir(parents=True, exist_ok=True) # Create the directory if it doesn't exist
 
 # 2. Create a model save path
