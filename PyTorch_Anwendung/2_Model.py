@@ -123,5 +123,3 @@ model_path = f"{path}/{model_name}"
 
 torch.save(obj=model, f= model_path,)
 print(f"\nModel saved to {model_path}")
-
-
