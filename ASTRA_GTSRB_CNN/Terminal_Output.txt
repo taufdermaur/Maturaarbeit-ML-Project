@@ -1,0 +1,273 @@
+Using device: cuda
+ASTRA - Train: 2168, Val: 541, Test: 602, Classes: 10
+GTSRB - Train: 31368, Val: 7841, Test: 12630, Classes: 43
+
+==================================================
+Training ASTRA Model
+==================================================
+Epoch  1/25 | Train Loss: 1.6721, Train Acc: 0.4073 | Val Loss: 1.1348, Val Acc: 0.5545 | LR: 0.001000
+Epoch  2/25 | Train Loss: 1.1538, Train Acc: 0.5881 | Val Loss: 0.8882, Val Acc: 0.6543 | LR: 0.001000
+Epoch  3/25 | Train Loss: 0.9186, Train Acc: 0.6684 | Val Loss: 0.6553, Val Acc: 0.7579 | LR: 0.001000
+Epoch  4/25 | Train Loss: 0.7042, Train Acc: 0.7343 | Val Loss: 0.5125, Val Acc: 0.8281 | LR: 0.001000
+Epoch  5/25 | Train Loss: 0.5573, Train Acc: 0.7984 | Val Loss: 0.4213, Val Acc: 0.8429 | LR: 0.000700
+Epoch  6/25 | Train Loss: 0.4066, Train Acc: 0.8482 | Val Loss: 0.2504, Val Acc: 0.9131 | LR: 0.000700
+Epoch  7/25 | Train Loss: 0.3107, Train Acc: 0.8944 | Val Loss: 0.2487, Val Acc: 0.9076 | LR: 0.000700
+Epoch  8/25 | Train Loss: 0.2655, Train Acc: 0.9082 | Val Loss: 0.1905, Val Acc: 0.9316 | LR: 0.000700
+Epoch  9/25 | Train Loss: 0.2407, Train Acc: 0.9161 | Val Loss: 0.1413, Val Acc: 0.9445 | LR: 0.000700
+Epoch 10/25 | Train Loss: 0.2179, Train Acc: 0.9322 | Val Loss: 0.1704, Val Acc: 0.9316 | LR: 0.000490
+Epoch 11/25 | Train Loss: 0.1694, Train Acc: 0.9396 | Val Loss: 0.0724, Val Acc: 0.9704 | LR: 0.000490
+Epoch 12/25 | Train Loss: 0.1171, Train Acc: 0.9589 | Val Loss: 0.0503, Val Acc: 0.9852 | LR: 0.000490
+Epoch 13/25 | Train Loss: 0.0949, Train Acc: 0.9723 | Val Loss: 0.0799, Val Acc: 0.9815 | LR: 0.000490
+Epoch 14/25 | Train Loss: 0.0917, Train Acc: 0.9728 | Val Loss: 0.0843, Val Acc: 0.9723 | LR: 0.000490
+Epoch 15/25 | Train Loss: 0.1055, Train Acc: 0.9668 | Val Loss: 0.0800, Val Acc: 0.9704 | LR: 0.000343
+Epoch 16/25 | Train Loss: 0.0636, Train Acc: 0.9815 | Val Loss: 0.0465, Val Acc: 0.9908 | LR: 0.000343
+Epoch 17/25 | Train Loss: 0.0501, Train Acc: 0.9839 | Val Loss: 0.0371, Val Acc: 0.9834 | LR: 0.000343
+Epoch 18/25 | Train Loss: 0.0468, Train Acc: 0.9857 | Val Loss: 0.0412, Val Acc: 0.9871 | LR: 0.000343
+Epoch 19/25 | Train Loss: 0.0433, Train Acc: 0.9848 | Val Loss: 0.0145, Val Acc: 0.9945 | LR: 0.000343
+Epoch 20/25 | Train Loss: 0.0476, Train Acc: 0.9848 | Val Loss: 0.0424, Val Acc: 0.9908 | LR: 0.000240
+Epoch 21/25 | Train Loss: 0.0295, Train Acc: 0.9894 | Val Loss: 0.0322, Val Acc: 0.9926 | LR: 0.000240
+Epoch 22/25 | Train Loss: 0.0323, Train Acc: 0.9889 | Val Loss: 0.0226, Val Acc: 0.9908 | LR: 0.000240
+Epoch 23/25 | Train Loss: 0.0221, Train Acc: 0.9940 | Val Loss: 0.0144, Val Acc: 0.9945 | LR: 0.000240
+Epoch 24/25 | Train Loss: 0.0177, Train Acc: 0.9945 | Val Loss: 0.0184, Val Acc: 0.9945 | LR: 0.000240
+Epoch 25/25 | Train Loss: 0.0149, Train Acc: 0.9954 | Val Loss: 0.0154, Val Acc: 0.9945 | LR: 0.000168
+
+ASTRA Detaillierte Metriken:
+Best Validation Accuracy: 0.9945
+Test Accuracy: 0.9967
+Präzision (Precision): 0.9967
+Sensitivität (Recall): 0.9967
+F1-Score: 0.9967
+Durchschnittliche Konfidenz: 0.9942
+
+ASTRA Klassifikationsbericht mit Konfidenz:
+Klasse                                   Präzision  Recall     F1-Score   Support    Konfidenz
+----------------------------------------------------------------------------------------------------
+Besondere Signale                        1.000      1.000      1.000      16         0.948
+Ergänzende Angaben zu Signalen           0.990      1.000      0.995      100        0.996
+Fahranordnungen Parkierungsbeschränkung  1.000      1.000      1.000      122        0.996
+Fahrverbote Mass und Gewichtsbeschränku  1.000      1.000      1.000      48         0.998
+Informationshinweise                     1.000      1.000      1.000      50         0.990
+Markierungen und Leiteinrichtungen       0.981      1.000      0.990      52         1.000
+Verhaltenshinweise                       1.000      1.000      1.000      64         0.996
+Vortrittssignale                         1.000      1.000      1.000      24         1.000
+Wegweisung auf Autobahnen und Autostras  1.000      1.000      1.000      36         0.994
+Wegweisung auf Haupt und Nebenstrassen   1.000      0.978      0.989      90         0.993
+
+Durchschnitt/Gesamt                      0.997      0.997      0.997      602        0.994
+ASTRA Model saved to C:\Users\timau\Desktop\traffic_sign_cnn_astra.pth
+
+==================================================
+Training GTSRB Model
+==================================================
+Epoch  1/25 | Train Loss: 1.9841, Train Acc: 0.3754 | Val Loss: 1.1250, Val Acc: 0.6026 | LR: 0.001000
+Epoch  2/25 | Train Loss: 0.7065, Train Acc: 0.7552 | Val Loss: 0.2339, Val Acc: 0.9279 | LR: 0.001000
+Epoch  3/25 | Train Loss: 0.3228, Train Acc: 0.8955 | Val Loss: 0.0921, Val Acc: 0.9707 | LR: 0.001000
+Epoch  4/25 | Train Loss: 0.2069, Train Acc: 0.9333 | Val Loss: 0.0449, Val Acc: 0.9888 | LR: 0.001000
+Epoch  5/25 | Train Loss: 0.1545, Train Acc: 0.9521 | Val Loss: 0.0437, Val Acc: 0.9875 | LR: 0.000700
+Epoch  6/25 | Train Loss: 0.0860, Train Acc: 0.9719 | Val Loss: 0.0264, Val Acc: 0.9911 | LR: 0.000700
+Epoch  7/25 | Train Loss: 0.0864, Train Acc: 0.9738 | Val Loss: 0.0152, Val Acc: 0.9958 | LR: 0.000700
+Epoch  8/25 | Train Loss: 0.0679, Train Acc: 0.9796 | Val Loss: 0.0233, Val Acc: 0.9938 | LR: 0.000700
+Epoch  9/25 | Train Loss: 0.0590, Train Acc: 0.9815 | Val Loss: 0.0201, Val Acc: 0.9950 | LR: 0.000700
+Epoch 10/25 | Train Loss: 0.0464, Train Acc: 0.9857 | Val Loss: 0.0554, Val Acc: 0.9874 | LR: 0.000490
+Epoch 11/25 | Train Loss: 0.0306, Train Acc: 0.9908 | Val Loss: 0.0130, Val Acc: 0.9966 | LR: 0.000490
+Epoch 12/25 | Train Loss: 0.0252, Train Acc: 0.9921 | Val Loss: 0.0142, Val Acc: 0.9954 | LR: 0.000490
+Epoch 13/25 | Train Loss: 0.0235, Train Acc: 0.9927 | Val Loss: 0.0106, Val Acc: 0.9972 | LR: 0.000490
+Epoch 14/25 | Train Loss: 0.0226, Train Acc: 0.9929 | Val Loss: 0.0227, Val Acc: 0.9938 | LR: 0.000490
+Epoch 15/25 | Train Loss: 0.0187, Train Acc: 0.9950 | Val Loss: 0.0098, Val Acc: 0.9969 | LR: 0.000343
+Epoch 16/25 | Train Loss: 0.0128, Train Acc: 0.9964 | Val Loss: 0.0065, Val Acc: 0.9978 | LR: 0.000343
+Epoch 17/25 | Train Loss: 0.0108, Train Acc: 0.9970 | Val Loss: 0.0098, Val Acc: 0.9977 | LR: 0.000343
+Epoch 18/25 | Train Loss: 0.0120, Train Acc: 0.9965 | Val Loss: 0.0084, Val Acc: 0.9973 | LR: 0.000343
+Epoch 19/25 | Train Loss: 0.0124, Train Acc: 0.9962 | Val Loss: 0.0086, Val Acc: 0.9972 | LR: 0.000343
+Epoch 20/25 | Train Loss: 0.0091, Train Acc: 0.9976 | Val Loss: 0.0093, Val Acc: 0.9977 | LR: 0.000240
+Epoch 21/25 | Train Loss: 0.0046, Train Acc: 0.9987 | Val Loss: 0.0051, Val Acc: 0.9986 | LR: 0.000240
+Epoch 22/25 | Train Loss: 0.0066, Train Acc: 0.9981 | Val Loss: 0.0049, Val Acc: 0.9989 | LR: 0.000240
+Epoch 23/25 | Train Loss: 0.0067, Train Acc: 0.9979 | Val Loss: 0.0049, Val Acc: 0.9987 | LR: 0.000240
+Epoch 24/25 | Train Loss: 0.0068, Train Acc: 0.9978 | Val Loss: 0.0073, Val Acc: 0.9985 | LR: 0.000240
+Epoch 25/25 | Train Loss: 0.0077, Train Acc: 0.9979 | Val Loss: 0.0082, Val Acc: 0.9977 | LR: 0.000168
+
+GTSRB Detaillierte Metriken:
+Best Validation Accuracy: 0.9989
+Test Accuracy: 0.9809
+Präzision (Precision): 0.9817
+Sensitivität (Recall): 0.9809
+F1-Score: 0.9807
+Durchschnittliche Konfidenz: 0.9888
+
+GTSRB Klassifikationsbericht mit Konfidenz:
+Klasse                              Präzision  Recall     F1-Score   Support    Konfidenz
+-----------------------------------------------------------------------------------------------
+Geschwindigkeitsbeschränkung 20     0.968      1.000      0.984      60         1.000
+Geschwindigkeitsbeschränkung 30     1.000      0.997      0.998      660        0.999
+Geschwindigkeitsbeschränkung 50     0.958      0.986      0.972      420        0.994
+Geschwindigkeitsbeschränkung 60     0.995      0.933      0.963      690        0.968
+Geschwindigkeitsbeschränkung 70     0.982      0.997      0.990      720        0.998
+Geschwindigkeitsbeschränkung 80     0.996      1.000      0.998      270        1.000     
+Ende Höchstgeschwindigkeit          0.938      1.000      0.968      210        1.000
+Geschwindigkeitsbeschränkung 100    1.000      1.000      1.000      150        0.999
+Geschwindigkeitsbeschränkung 120    1.000      0.978      0.989      360        0.984
+Überholen verboten                  1.000      0.972      0.986      390        0.967
+Überholverbot für Kraftfahrzeuge    0.968      1.000      0.984      60         0.997
+Vorfahrt                            0.996      0.997      0.997      720        0.998
+Hauptstraße                         0.817      0.989      0.894      90         0.997
+Vorfahrt gewähren                   1.000      0.922      0.960      90         0.913
+Stop                                0.991      0.917      0.952      120        0.976
+Fahrverbot                          0.968      1.000      0.984      150        0.997
+Fahrverbot für Kraftfahrzeuge       0.978      0.967      0.972      90         0.982
+Verbot der Einfahrt                 0.969      0.990      0.979      480        0.990
+Gefahrstelle                        0.952      1.000      0.976      180        0.999
+Kurve links                         0.837      0.600      0.699      60         0.811
+Kurve rechts                        0.955      0.980      0.967      150        0.991
+Doppelkurve zunächst links          0.811      1.000      0.896      90         1.000
+Unebene Fahrbahn                    0.996      0.996      0.996      750        0.998
+Schleuder oder Rutschgefahr         0.958      0.760      0.848      150        0.923
+Verengung rechts                    0.985      0.989      0.987      270        0.990
+Baustelle                           0.882      1.000      0.938      60         0.999
+Lichtzeichenanlage                  0.990      0.990      0.990      210        0.999
+Fußgänger                           0.983      0.992      0.988      120        0.998
+Kinder                              1.000      0.990      0.995      390        0.989
+Radverkehr                          0.968      1.000      0.984      120        0.994
+Schnee oder Eisglätte               1.000      1.000      1.000      60         0.997
+Wildwechsel                         0.994      0.999      0.996      690        0.998
+Ende Geschwindigkeitsbegrenzungen   0.917      0.978      0.946      90         0.986
+Fahrtrichtung rechts                0.998      0.969      0.983      450        0.993
+Fahrtrichtung links                 0.878      0.956      0.915      90         0.982
+Fahrtrichtung geradeaus             1.000      1.000      1.000      60         0.992
+Fahrtrichtung geradeaus rechts      0.978      0.989      0.983      90         0.975
+Fahrtrichtung geradeaus links       0.995      0.988      0.992      660        0.993
+Vorbeifahrt rechts                  0.969      0.994      0.981      630        0.996
+Vorbeifahrt links                   0.986      0.927      0.955      150        0.914
+Kreisverkehr                        1.000      0.964      0.982      450        0.983
+Ende Überholverbot                  0.964      0.998      0.980      450        0.994
+Ende Überholverbot für Kraftfahrze  0.998      1.000      0.999      480        1.000
+
+Durchschnitt/Gesamt                 0.982      0.981      0.981      12630      0.989
+GTSRB Model saved to C:\Users\timau\Desktop\traffic_sign_cnn_gtsrb.pth
+
+================================================================================
+FINAL RESULTS SUMMARY
+================================================================================
+ASTRA Model:
+  Test Accuracy: 0.9967
+  Präzision: 0.9967
+  Sensitivität: 0.9967
+  F1-Score: 0.9967
+  Durchschnittliche Konfidenz: 0.9942
+
+GTSRB Model:
+  Test Accuracy: 0.9809
+  Präzision: 0.9817
+  Sensitivität: 0.9809
+  F1-Score: 0.9807
+  Durchschnittliche Konfidenz: 0.9888
+================================================================================
+
+Konfusionsmatrizen und Konfidenz-Verteilungen wurden auf dem Desktop gespeichert:
+- astra_confusion_matrix.png
+- gtsrb_confusion_matrix.png
+- confidence_distributions.png
+
+================================================================================
+PERFORMANCE BENCHMARK FÜR REAL-LIFE DEPLOYMENT
+================================================================================
+
+Benchmark für ASTRA Modell:
+Device: cuda
+
+--- Batch Size: 1 ---
+  Latenz (ms):
+    - Durchschnitt: 0.99 ms
+    - Minimum: 0.86 ms
+    - Maximum: 2.03 ms
+    - P95: 1.24 ms
+    - P99: 1.41 ms
+  Durchsatz: 1007.0 Bilder/Sekunde
+  Bewertung: Echzeit-tauglich (< 10ms)
+
+--- Batch Size: 8 ---
+  Latenz (ms):
+    - Durchschnitt: 0.90 ms
+    - Minimum: 0.87 ms
+    - Maximum: 1.60 ms
+    - P95: 0.99 ms
+    - P99: 1.22 ms
+  Durchsatz: 8840.0 Bilder/Sekunde
+  Bewertung: Echzeit-tauglich (< 10ms)
+
+--- Batch Size: 16 ---
+  Latenz (ms):
+    - Durchschnitt: 0.90 ms
+    - Minimum: 0.85 ms
+    - Maximum: 1.51 ms
+    - P95: 0.98 ms
+    - P99: 1.14 ms
+  Durchsatz: 17810.3 Bilder/Sekunde
+  Bewertung: Echzeit-tauglich (< 10ms)
+
+--- Batch Size: 32 ---
+  Latenz (ms):
+    - Durchschnitt: 0.98 ms
+    - Minimum: 0.86 ms
+    - Maximum: 1.86 ms
+    - P95: 1.71 ms
+    - P99: 1.79 ms
+  Durchsatz: 32694.5 Bilder/Sekunde
+  Bewertung: Echzeit-tauglich (< 10ms)
+
+Benchmark für GTSRB Modell:
+Device: cuda
+
+--- Batch Size: 1 ---
+  Latenz (ms):
+    - Durchschnitt: 0.95 ms
+    - Minimum: 0.86 ms
+    - Maximum: 1.29 ms
+    - P95: 1.21 ms
+    - P99: 1.23 ms
+  Durchsatz: 1048.9 Bilder/Sekunde
+  Bewertung: Echzeit-tauglich (< 10ms)
+
+--- Batch Size: 8 ---
+  Latenz (ms):
+    - Durchschnitt: 1.05 ms
+    - Minimum: 0.87 ms
+    - Maximum: 2.08 ms
+    - P95: 1.80 ms
+    - P99: 1.89 ms
+  Durchsatz: 7590.0 Bilder/Sekunde
+  Bewertung: Echzeit-tauglich (< 10ms)
+
+--- Batch Size: 16 ---
+  Latenz (ms):
+    - Durchschnitt: 1.17 ms
+    - Minimum: 0.86 ms
+    - Maximum: 2.04 ms
+    - P95: 1.68 ms
+    - P99: 1.78 ms
+  Durchsatz: 13649.0 Bilder/Sekunde
+  Bewertung: Echzeit-tauglich (< 10ms)
+
+--- Batch Size: 32 ---
+  Latenz (ms):
+    - Durchschnitt: 1.42 ms
+    - Minimum: 0.86 ms
+    - Maximum: 2.40 ms
+    - P95: 1.81 ms
+    - P99: 1.89 ms
+  Durchsatz: 22460.2 Bilder/Sekunde
+  Bewertung: Echzeit-tauglich (< 10ms)
+
+============================================================
+MODELL-GRÖSSEN ANALYSE
+============================================================
+
+ASTRA Modell-Statistiken:
+  - Gesamt Parameter: 2,620,938
+  - Trainierbare Parameter: 2,620,938
+  - Geschätzte Größe: 10.00 MB
+
+GTSRB Modell-Statistiken:
+  - Gesamt Parameter: 2,629,419
+  - Trainierbare Parameter: 2,629,419
+  - Geschätzte Größe: 10.03 MB
+
+================================================================================
