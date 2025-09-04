@@ -287,7 +287,7 @@ class TrafficSignCNN(nn.Module):
         return x
 
 # Training function
-def train_model(model, train_loader, val_loader, num_epochs=25, lr=0.001, monitor=None):
+def train_model(model, train_loader, val_loader, num_epochs=100, lr=0.001, monitor=None):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
@@ -496,28 +496,72 @@ def realtime_evaluation_detailed(model, test_loader, model_name, warmup_batches=
     
     return per_image_latencies, throughput
 
-# Function to create latency histogram
+# Function to create latency histogram with modified axes
 def create_latency_histogram(latencies, model_name, save_path_with_stats, save_path_without_stats):
     mean_latency = np.mean(latencies)
     median_latency = np.median(latencies)
     std_latency = np.std(latencies)
     
+    # Separate latencies <= 4ms and > 4ms
+    latencies_filtered = [lat for lat in latencies if lat <= 4.0]
+    latencies_over_4ms = [lat for lat in latencies if lat > 4.0]
+    
+    print(f"{model_name}: {len(latencies_over_4ms)} von {len(latencies)} Samples über 4ms ({len(latencies_over_4ms)/len(latencies)*100:.1f}%)")
+    
+    # Create bins: 0-4ms in regular intervals, plus one bin for >4ms
+    regular_bins = np.linspace(0, 4, 40)  # 39 bins from 0-4ms
+    
     # Histogram WITH statistics
     plt.figure(figsize=(12, 8))
-    n, bins, patches = plt.hist(latencies, bins=50, alpha=0.7, color='steelblue', edgecolor='black')
     
-    # Add vertical lines for mean and median
-    plt.axvline(mean_latency, color='red', linestyle='--', linewidth=2, label=f'Mittelwert: {mean_latency:.2f} ms')
-    plt.axvline(median_latency, color='green', linestyle='--', linewidth=2, label=f'Median: {median_latency:.2f} ms')
+    # Create histogram for ≤4ms data
+    n, bins, patches = plt.hist(latencies_filtered, bins=regular_bins, alpha=0.7, 
+                               color='steelblue', edgecolor='black')
+    
+    # Add the >4ms bin manually
+    if len(latencies_over_4ms) > 0:
+        # Get the width of regular bins for consistent appearance
+        bin_width = regular_bins[1] - regular_bins[0]
+        
+        # Add the >4ms bar at position 4.0
+        plt.bar(4.0, len(latencies_over_4ms), width=bin_width, 
+               alpha=0.7, color='red', edgecolor='black', label=f'>4ms (n={len(latencies_over_4ms)})')
+    
+    # Set y-axis to log scale
+    plt.yscale('log')
+    
+    # Add vertical lines for mean and median (only if they're ≤4ms)
+    if mean_latency <= 4.0:
+        plt.axvline(mean_latency, color='red', linestyle='--', linewidth=2, 
+                   label=f'Mittelwert: {mean_latency:.2f} ms')
+    if median_latency <= 4.0:
+        plt.axvline(median_latency, color='green', linestyle='--', linewidth=2, 
+                   label=f'Median: {median_latency:.2f} ms')
     
     plt.title(f'Latenz-Verteilung - {model_name} (mit Statistiken)', fontsize=16, fontweight='bold')
     plt.xlabel('Latenz pro Bild (ms)', fontweight='bold')
-    plt.ylabel('Häufigkeit', fontweight='bold')
+    plt.ylabel('Häufigkeit (log scale)', fontweight='bold')
+    
+    # Set x-axis limits and ticks
+    plt.xlim(0, 4.2)
+    xticks = list(np.arange(0, 4.5, 0.5))
+    xtick_labels = [f'{x:.1f}' if x <= 4.0 else '>4' for x in xticks]
+    xtick_labels[-1] = '>4'  # Ensure last label is '>4'
+    plt.xticks(xticks, xtick_labels)
+    
     plt.legend()
     plt.grid(alpha=0.3)
     
     # Add statistics text box
-    stats_text = f'Statistiken:\nMittelwert: {mean_latency:.2f} ms\nMedian: {median_latency:.2f} ms\nStd.-Abw.: {std_latency:.2f} ms\nMin: {min(latencies):.2f} ms\nMax: {max(latencies):.2f} ms'
+    over_4ms_percent = len(latencies_over_4ms)/len(latencies)*100
+    stats_text = (f'Statistiken:\n'
+                 f'Mittelwert: {mean_latency:.2f} ms\n'
+                 f'Median: {median_latency:.2f} ms\n'
+                 f'Std.-Abw.: {std_latency:.2f} ms\n'
+                 f'Min: {min(latencies):.2f} ms\n'
+                 f'Max: {max(latencies):.2f} ms\n'
+                 f'>4ms: {over_4ms_percent:.1f}% ({len(latencies_over_4ms)} samples)')
+    
     plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
              verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
     
@@ -527,11 +571,31 @@ def create_latency_histogram(latencies, model_name, save_path_with_stats, save_p
     
     # Histogram WITHOUT statistics
     plt.figure(figsize=(12, 8))
-    plt.hist(latencies, bins=50, alpha=0.7, color='steelblue', edgecolor='black')
+    
+    # Create histogram for ≤4ms data
+    plt.hist(latencies_filtered, bins=regular_bins, alpha=0.7, 
+            color='steelblue', edgecolor='black')
+    
+    # Add the >4ms bin manually
+    if len(latencies_over_4ms) > 0:
+        bin_width = regular_bins[1] - regular_bins[0]
+        plt.bar(4.0, len(latencies_over_4ms), width=bin_width, 
+               alpha=0.7, color='red', edgecolor='black')
+    
+    # Set y-axis to log scale
+    plt.yscale('log')
     
     plt.title(f'Latenz-Verteilung - {model_name}', fontsize=16, fontweight='bold')
     plt.xlabel('Latenz pro Bild (ms)', fontweight='bold')
-    plt.ylabel('Häufigkeit', fontweight='bold')
+    plt.ylabel('Häufigkeit (log scale)', fontweight='bold')
+    
+    # Set x-axis limits and ticks
+    plt.xlim(0, 4.2)
+    xticks = list(np.arange(0, 4.5, 0.5))
+    xtick_labels = [f'{x:.1f}' if x <= 4.0 else '>4' for x in xticks]
+    xtick_labels[-1] = '>4'  # Ensure last label is '>4'
+    plt.xticks(xticks, xtick_labels)
+    
     plt.grid(alpha=0.3)
     
     plt.tight_layout()
@@ -549,7 +613,7 @@ astra_model = TrafficSignCNN(astra_num_classes).to(device)
 astra_total_params = sum(p.numel() for p in astra_model.parameters())
 print(f"ASTRA Modell Parameter: {astra_total_params:,}")
 
-astra_best_acc = train_model(astra_model, astra_train_loader, astra_val_loader, num_epochs=25, monitor=monitor)
+astra_best_acc = train_model(astra_model, astra_train_loader, astra_val_loader, num_epochs=100, monitor=monitor)
 
 # Save ASTRA model
 torch.save(astra_model.state_dict(), r'C:\Users\timau\Desktop\astra_model.pth')
@@ -563,7 +627,7 @@ gtsrb_model = TrafficSignCNN(gtsrb_num_classes).to(device)
 gtsrb_total_params = sum(p.numel() for p in gtsrb_model.parameters())
 print(f"GTSRB Modell Parameter: {gtsrb_total_params:,}")
 
-gtsrb_best_acc = train_model(gtsrb_model, gtsrb_train_loader, gtsrb_val_loader, num_epochs=25, monitor=monitor)
+gtsrb_best_acc = train_model(gtsrb_model, gtsrb_train_loader, gtsrb_val_loader, num_epochs=100, monitor=monitor)
 
 # Save GTSRB model
 torch.save(gtsrb_model.state_dict(), r'C:\Users\timau\Desktop\gtsrb_model.pth')

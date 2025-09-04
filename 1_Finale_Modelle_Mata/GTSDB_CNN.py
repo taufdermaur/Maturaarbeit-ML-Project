@@ -1,21 +1,23 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms
 import pandas as pd
 import numpy as np
 import time
 import psutil
 import GPUtil
-from PIL import Image
+from PIL import Image, ImageDraw
 import os
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
+import cv2
+from sklearn.metrics import accuracy_score
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import warnings
 warnings.filterwarnings('ignore')
 
-# Performance monitoring
+# Performance monitoring (adapted from GTSRB script)
 class PerformanceMonitor:
     def __init__(self):
         self.initial_memory = psutil.virtual_memory().percent
@@ -43,6 +45,7 @@ class PerformanceMonitor:
         self.timestamps.append(time.time())
     
     def create_performance_plots(self, save_path):
+        import matplotlib.pyplot as plt
         plt.style.use('seaborn-v0_8')
         
         # Convert timestamps to relative time in minutes
@@ -105,215 +108,199 @@ monitor = PerformanceMonitor()
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Device: {device}")
 
-# Data transformations
+# Data transformations for localization
 train_transform = transforms.Compose([
-    transforms.Resize((64, 64)),
-    transforms.RandomRotation(10),
+    transforms.Resize((800, 1360)),  # Keep original aspect ratio
+    transforms.RandomHorizontalFlip(p=0.3),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
     transforms.ToTensor(),
     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 ])
 
 test_transform = transforms.Compose([
-    transforms.Resize((64, 64)),
+    transforms.Resize((800, 1360)),
     transforms.ToTensor(),
     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 ])
 
-# GTSDB Dataset class for binary classification (sign/no sign)
+# Custom Dataset class for GTSDB
 class GTSDBDataset(Dataset):
-    def __init__(self, root_dir, annotation_file, transform=None, is_train=True):
+    def __init__(self, root_dir, gt_file, transform=None, max_objects=10):
         self.root_dir = root_dir
         self.transform = transform
-        self.is_train = is_train
-        self.samples = []
+        self.max_objects = max_objects
         
-        # Read annotations for positive samples (with signs)
-        annotations = []
-        if os.path.exists(annotation_file):
-            with open(annotation_file, 'r') as f:
-                for line in f:
-                    parts = line.strip().split(';')
-                    if len(parts) >= 6:
-                        filename = parts[0]
-                        x1, y1, x2, y2 = map(int, parts[1:5])
-                        
-                        img_path = os.path.join(root_dir, filename)
-                        if os.path.exists(img_path):
-                            annotations.append({
-                                'filename': filename,
-                                'bbox': [x1, y1, x2, y2]
-                            })
+        # Parse ground truth file
+        self.annotations = self._parse_gt_file(gt_file)
         
-        # Create positive samples (class 1: sign exists)
-        for ann in annotations:
-            img_path = os.path.join(root_dir, ann['filename'])
-            image = Image.open(img_path).convert('RGB')
-            img_width, img_height = image.size
-            
-            x1, y1, x2, y2 = ann['bbox']
-            
-            # Expand bounding box slightly for better sign capture
-            padding = 20
-            x1_exp = max(0, x1 - padding)
-            y1_exp = max(0, y1 - padding)
-            x2_exp = min(img_width, x2 + padding)
-            y2_exp = min(img_height, y2 + padding)
-            
-            # Crop sign region for positive sample
-            sign_crop = image.crop((x1_exp, y1_exp, x2_exp, y2_exp))
-            
-            self.samples.append({
-                'image': sign_crop,
-                'label': 1,  # Class 1: sign
-                'original_filename': ann['filename']
-            })
+    def _parse_gt_file(self, gt_file):
+        annotations = {}
         
-        # Create negative samples (class 0: no sign)
-        for ann in annotations:
-            img_path = os.path.join(root_dir, ann['filename'])
-            image = Image.open(img_path).convert('RGB')
-            img_width, img_height = image.size
-            
-            x1, y1, x2, y2 = ann['bbox']
-            
-            # Create multiple negative samples per image
-            neg_samples_per_image = 2
-            for _ in range(neg_samples_per_image):
-                attempts = 0
-                while attempts < 20:
-                    # Random crop size between 32 and 128 pixels
-                    crop_size = np.random.randint(32, 128)
+        with open(gt_file, 'r') as f:
+            for line in f:
+                parts = line.strip().split(';')
+                if len(parts) == 6:
+                    filename = parts[0].replace('.ppm', '.png')
+                    x1, y1, x2, y2, class_id = map(int, parts[1:])
                     
-                    # Random position
-                    max_x = max(1, img_width - crop_size)
-                    max_y = max(1, img_height - crop_size)
-                    crop_x = np.random.randint(0, max_x)
-                    crop_y = np.random.randint(0, max_y)
-                    crop_x2 = crop_x + crop_size
-                    crop_y2 = crop_y + crop_size
+                    if filename not in annotations:
+                        annotations[filename] = []
                     
-                    # Check if crop overlaps significantly with sign bounding box
-                    overlap_x = max(0, min(crop_x2, x2) - max(crop_x, x1))
-                    overlap_y = max(0, min(crop_y2, y2) - max(crop_y, y1))
-                    overlap_area = overlap_x * overlap_y
-                    crop_area = crop_size * crop_size
+                    # Normalize coordinates to 0-1 range (based on original 1360x800)
+                    x1_norm = x1 / 1360.0
+                    y1_norm = y1 / 800.0
+                    x2_norm = x2 / 1360.0
+                    y2_norm = y2 / 800.0
                     
-                    # If overlap is less than 10% of crop area, it's a good negative sample
-                    if overlap_area / crop_area < 0.1:
-                        negative_crop = image.crop((crop_x, crop_y, crop_x2, crop_y2))
-                        
-                        self.samples.append({
-                            'image': negative_crop,
-                            'label': 0,  # Class 0: no sign
-                            'original_filename': ann['filename']
-                        })
-                        break
-                    
-                    attempts += 1
+                    annotations[filename].append({
+                        'x1': x1_norm, 'y1': y1_norm, 'x2': x2_norm, 'y2': y2_norm,
+                        'class_id': class_id
+                    })
         
-        # Shuffle samples
-        np.random.shuffle(self.samples)
-        
-        # Count classes
-        positive_count = sum(1 for s in self.samples if s['label'] == 1)
-        negative_count = sum(1 for s in self.samples if s['label'] == 0)
-        
-        print(f"GTSDB Dataset loaded: {len(self.samples)} samples")
-        print(f"Positive samples (sign): {positive_count}")
-        print(f"Negative samples (no sign): {negative_count}")
-        print(f"Class balance: {positive_count/(positive_count+negative_count)*100:.1f}% positive")
+        return annotations
     
     def __len__(self):
-        return len(self.samples)
+        return len(self.annotations)
     
     def __getitem__(self, idx):
-        sample = self.samples[idx]
-        image = sample['image']
-        label = sample['label']
+        filename = list(self.annotations.keys())[idx]
+        img_path = os.path.join(self.root_dir, filename)
+        
+        # Load image
+        image = Image.open(img_path).convert('RGB')
+        
+        # Get annotations for this image
+        objects = self.annotations[filename]
+        
+        # Create target tensor: [num_objects, 5] -> [x1, y1, x2, y2, objectness]
+        target = torch.zeros(self.max_objects, 5)
+        
+        for i, obj in enumerate(objects[:self.max_objects]):
+            target[i, 0] = obj['x1']
+            target[i, 1] = obj['y1'] 
+            target[i, 2] = obj['x2']
+            target[i, 3] = obj['y2']
+            target[i, 4] = 1.0  # objectness (object present)
         
         if self.transform:
             image = self.transform(image)
-        
-        return image, torch.tensor(label, dtype=torch.long)
+            
+        return image, target, filename
 
-# Binary Classification CNN Model
-class TrafficSignBinaryClassifier(nn.Module):
-    def __init__(self):
-        super(TrafficSignBinaryClassifier, self).__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+# Localization CNN Model
+class LocalizationCNN(nn.Module):
+    def __init__(self, max_objects=10):
+        super(LocalizationCNN, self).__init__()
+        self.max_objects = max_objects
+        
+        # Backbone feature extractor (similar to GTSRB style)
+        self.backbone = nn.Sequential(
+            # First block
+            nn.Conv2d(3, 32, kernel_size=7, stride=2, padding=3),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+            
+            # Second block  
+            nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+            
+            # Third block
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
             
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            # Fourth block
+            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
             
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            # Fifth block
+            nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.AdaptiveAvgPool2d((7, 7))
         )
         
-        self.classifier = nn.Sequential(
+        # Detection head
+        self.detection_head = nn.Sequential(
             nn.Dropout(0.5),
-            nn.Linear(256 * 4 * 4, 512),
+            nn.Linear(512 * 7 * 7, 1024),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
-            nn.Linear(512, 2)  # 2 classes: 0=no sign, 1=sign
+            nn.Linear(1024, 512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, max_objects * 5)  # 5 values per object: x1,y1,x2,y2,objectness
         )
-    
+        
     def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
-        return x
+        # Extract features
+        features = self.backbone(x)
+        features = features.view(features.size(0), -1)
+        
+        # Detection predictions
+        detections = self.detection_head(features)
+        detections = detections.view(-1, self.max_objects, 5)
+        
+        # Apply sigmoid to coordinates and objectness
+        detections[:, :, :4] = torch.sigmoid(detections[:, :, :4])  # coordinates 0-1
+        detections[:, :, 4] = torch.sigmoid(detections[:, :, 4])    # objectness 0-1
+        
+        return detections
 
-# Classification CNN Model (same as in script 1)
-class TrafficSignCNN(nn.Module):
-    def __init__(self, num_classes):
-        super(TrafficSignCNN, self).__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-        )
+# Custom loss function for localization
+class LocalizationLoss(nn.Module):
+    def __init__(self, coord_weight=5.0, obj_weight=1.0, noobj_weight=0.5):
+        super(LocalizationLoss, self).__init__()
+        self.coord_weight = coord_weight
+        self.obj_weight = obj_weight
+        self.noobj_weight = noobj_weight
+        self.mse = nn.MSELoss(reduction='none')
         
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(256 * 4 * 4, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(512, num_classes)
-        )
-    
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
-        return x
+    def forward(self, predictions, targets):
+        batch_size = predictions.size(0)
+        
+        # Separate coordinates and objectness
+        pred_coords = predictions[:, :, :4]
+        pred_obj = predictions[:, :, 4]
+        
+        target_coords = targets[:, :, :4]
+        target_obj = targets[:, :, 4]
+        
+        # Object mask (where objects exist)
+        obj_mask = target_obj > 0.5
+        noobj_mask = target_obj <= 0.5
+        
+        # Coordinate loss (only for existing objects)
+        coord_loss = 0
+        if obj_mask.sum() > 0:
+            coord_loss = self.mse(pred_coords[obj_mask], target_coords[obj_mask]).sum()
+            coord_loss = coord_loss / batch_size
+        
+        # Objectness loss
+        obj_loss = self.mse(pred_obj[obj_mask], target_obj[obj_mask]).sum() if obj_mask.sum() > 0 else 0
+        noobj_loss = self.mse(pred_obj[noobj_mask], target_obj[noobj_mask]).sum() if noobj_mask.sum() > 0 else 0
+        
+        obj_loss = obj_loss / batch_size
+        noobj_loss = noobj_loss / batch_size
+        
+        # Total loss
+        total_loss = (self.coord_weight * coord_loss + 
+                     self.obj_weight * obj_loss + 
+                     self.noobj_weight * noobj_loss)
+        
+        return total_loss
 
 # Training function
-def train_binary_classifier(model, train_loader, val_loader, num_epochs=25, lr=0.001, monitor=None):
-    criterion = nn.CrossEntropyLoss()
+def train_localization_model(model, train_loader, val_loader, num_epochs=100, lr=0.001, monitor=None):
+    criterion = LocalizationLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
-    best_val_acc = 0.0
+    best_val_loss = float('inf')
     
     for epoch in range(num_epochs):
         # Log performance every 5 epochs
@@ -323,10 +310,8 @@ def train_binary_classifier(model, train_loader, val_loader, num_epochs=25, lr=0
         # Training phase
         model.train()
         train_loss = 0.0
-        train_correct = 0
-        train_total = 0
         
-        for batch_idx, (data, target) in enumerate(train_loader):
+        for batch_idx, (data, target, _) in enumerate(train_loader):
             data, target = data.to(device), target.to(device)
             
             optimizer.zero_grad()
@@ -336,164 +321,220 @@ def train_binary_classifier(model, train_loader, val_loader, num_epochs=25, lr=0
             optimizer.step()
             
             train_loss += loss.item()
-            _, predicted = torch.max(output.data, 1)
-            train_total += target.size(0)
-            train_correct += (predicted == target).sum().item()
         
         # Validation phase
         model.eval()
         val_loss = 0.0
-        val_correct = 0
-        val_total = 0
         
         with torch.no_grad():
-            for data, target in val_loader:
+            for data, target, _ in val_loader:
                 data, target = data.to(device), target.to(device)
                 output = model(data)
                 loss = criterion(output, target)
-                
                 val_loss += loss.item()
-                _, predicted = torch.max(output.data, 1)
-                val_total += target.size(0)
-                val_correct += (predicted == target).sum().item()
         
-        train_acc = 100 * train_correct / train_total
-        val_acc = 100 * val_correct / val_total
+        avg_train_loss = train_loss / len(train_loader)
+        avg_val_loss = val_loss / len(val_loader)
         
-        print(f'Epoch {epoch+1}/{num_epochs} | Train Acc: {train_acc:.2f}% | Val Acc: {val_acc:.2f}% | Train Loss: {train_loss/len(train_loader):.4f} | Val Loss: {val_loss/len(val_loader):.4f}')
+        print(f'Epoch {epoch+1}/{num_epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}')
         
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             
-    return best_val_acc
+    return best_val_loss
 
-# Evaluation function
-def evaluate_binary_classifier(model, test_loader):
+# IoU calculation
+def calculate_iou(box1, box2):
+    """Calculate Intersection over Union (IoU) of two bounding boxes"""
+    x1_max = max(box1[0], box2[0])
+    y1_max = max(box1[1], box2[1])
+    x2_min = min(box1[2], box2[2])
+    y2_min = min(box1[3], box2[3])
+    
+    if x2_min <= x1_max or y2_min <= y1_max:
+        return 0.0
+    
+    intersection = (x2_min - x1_max) * (y2_min - y1_max)
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union = area1 + area2 - intersection
+    
+    return intersection / union if union > 0 else 0.0
+
+# Evaluation function for localization
+def evaluate_localization_model(model, test_loader, iou_threshold=0.5, conf_threshold=0.5):
     model.eval()
-    all_predictions = []
-    all_targets = []
-    all_confidences = []
-    class_confidences = {0: [], 1: []}
+    
+    total_detections = 0
+    total_ground_truths = 0
+    true_positives = 0
+    
+    detection_results = []
     
     with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            probabilities = torch.softmax(output, dim=1)
-            confidences, predicted = torch.max(probabilities, 1)
+        for data, targets, filenames in test_loader:
+            data = data.to(device)
+            predictions = model(data)
             
-            all_predictions.extend(predicted.cpu().numpy())
-            all_targets.extend(target.cpu().numpy())
-            all_confidences.extend(confidences.cpu().numpy())
+            for i in range(data.size(0)):
+                pred = predictions[i].cpu().numpy()
+                target = targets[i].cpu().numpy()
+                filename = filenames[i]
+                
+                # Filter predictions by confidence
+                pred_boxes = []
+                for j in range(pred.shape[0]):
+                    if pred[j, 4] > conf_threshold:  # objectness threshold
+                        pred_boxes.append(pred[j, :4])
+                
+                # Get ground truth boxes
+                gt_boxes = []
+                for j in range(target.shape[0]):
+                    if target[j, 4] > 0.5:  # object exists
+                        gt_boxes.append(target[j, :4])
+                
+                total_detections += len(pred_boxes)
+                total_ground_truths += len(gt_boxes)
+                
+                # Calculate matches using IoU
+                matched_gt = set()
+                for pred_box in pred_boxes:
+                    best_iou = 0
+                    best_gt_idx = -1
+                    
+                    for gt_idx, gt_box in enumerate(gt_boxes):
+                        if gt_idx not in matched_gt:
+                            iou = calculate_iou(pred_box, gt_box)
+                            if iou > best_iou:
+                                best_iou = iou
+                                best_gt_idx = gt_idx
+                    
+                    if best_iou >= iou_threshold:
+                        true_positives += 1
+                        matched_gt.add(best_gt_idx)
+                
+                detection_results.append({
+                    'filename': filename,
+                    'pred_boxes': pred_boxes,
+                    'gt_boxes': gt_boxes,
+                    'pred_raw': pred
+                })
+    
+    # Calculate metrics
+    precision = true_positives / total_detections if total_detections > 0 else 0
+    recall = true_positives / total_ground_truths if total_ground_truths > 0 else 0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    
+    return precision, recall, f1_score, detection_results
+
+# Visualization function
+def visualize_detections(detection_results, save_dir, max_images=10):
+    """Create matplotlib visualizations of detection results"""
+    os.makedirs(save_dir, exist_ok=True)
+    
+    for idx, result in enumerate(detection_results[:max_images]):
+        filename = result['filename']
+        pred_boxes = result['pred_boxes']
+        gt_boxes = result['gt_boxes']
+        
+        # Load original image
+        img_path = os.path.join(r'C:\Users\timau\Desktop\Datensätze\GTSDB\Test', filename)
+        if not os.path.exists(img_path):
+            img_path = os.path.join(r'C:\Users\timau\Desktop\Datensätze\GTSDB\Train', filename)
+        
+        if os.path.exists(img_path):
+            image = Image.open(img_path).convert('RGB')
+            img_width, img_height = image.size
             
-            # Collect confidences per class
-            for pred, conf, true_label in zip(predicted.cpu().numpy(), 
-                                            confidences.cpu().numpy(), 
-                                            target.cpu().numpy()):
-                if pred == true_label:  # Only correct predictions
-                    class_confidences[true_label].append(conf)
-    
-    accuracy = accuracy_score(all_targets, all_predictions)
-    precision, recall, f1, _ = precision_recall_fscore_support(all_targets, all_predictions, average='weighted')
-    
-    # Calculate average confidence per class
-    avg_class_confidences = {}
-    for class_id, confs in class_confidences.items():
-        if confs:
-            avg_class_confidences[class_id] = np.mean(confs)
-        else:
-            avg_class_confidences[class_id] = 0.0
-    
-    return accuracy, precision, recall, f1, all_predictions, all_targets, avg_class_confidences
+            fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            ax.imshow(image)
+            
+            # Draw ground truth boxes (green)
+            for gt_box in gt_boxes:
+                x1 = gt_box[0] * img_width
+                y1 = gt_box[1] * img_height
+                x2 = gt_box[2] * img_width
+                y2 = gt_box[3] * img_height
+                
+                rect = patches.Rectangle((x1, y1), x2-x1, y2-y1, 
+                                       linewidth=3, edgecolor='green', 
+                                       facecolor='none', label='Ground Truth')
+                ax.add_patch(rect)
+            
+            # Draw predicted boxes (red)
+            for pred_box in pred_boxes:
+                x1 = pred_box[0] * img_width
+                y1 = pred_box[1] * img_height
+                x2 = pred_box[2] * img_width
+                y2 = pred_box[3] * img_height
+                
+                rect = patches.Rectangle((x1, y1), x2-x1, y2-y1, 
+                                       linewidth=2, edgecolor='red', 
+                                       facecolor='none', linestyle='--', 
+                                       label='Vorhersage')
+                ax.add_patch(rect)
+            
+            ax.set_title(f'Verkehrsschilder-Lokalisation - {filename}', 
+                        fontsize=14, fontweight='bold')
+            ax.legend()
+            ax.axis('off')
+            
+            save_path = os.path.join(save_dir, f'detection_{idx:03d}_{filename}')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close()
 
-# Function to create confusion matrix
-def create_confusion_matrix(y_true, y_pred, num_classes, model_name, save_path):
-    cm = confusion_matrix(y_true, y_pred)
+# Extract 64x64 patches for classification
+def extract_patches_for_classification(detection_results, patch_size=64, conf_threshold=0.5):
+    """Extract 64x64 patches from detected regions for GTSRB classification"""
+    patches = []
+    patch_info = []
     
-    plt.figure(figsize=(8, 6))
-    plt.imshow(cm, interpolation='nearest', cmap='Blues')
-    plt.title(f'Konfusionsmatrix - {model_name}', fontsize=16, fontweight='bold', pad=20)
-    plt.colorbar(label='Anzahl Vorhersagen')
+    for result in detection_results:
+        filename = result['filename']
+        pred_raw = result['pred_raw']
+        
+        # Load original image
+        img_path = os.path.join(r'C:\Users\timau\Desktop\Datensätze\GTSDB\Test', filename)
+        if not os.path.exists(img_path):
+            img_path = os.path.join(r'C:\Users\timau\Desktop\Datensätze\GTSDB\Train', filename)
+        
+        if os.path.exists(img_path):
+            image = Image.open(img_path).convert('RGB')
+            img_width, img_height = image.size
+            
+            # Extract patches from confident detections
+            for i in range(pred_raw.shape[0]):
+                if pred_raw[i, 4] > conf_threshold:  # confidence threshold
+                    x1 = max(0, int(pred_raw[i, 0] * img_width))
+                    y1 = max(0, int(pred_raw[i, 1] * img_height))
+                    x2 = min(img_width, int(pred_raw[i, 2] * img_width))
+                    y2 = min(img_height, int(pred_raw[i, 3] * img_height))
+                    
+                    # Extract and resize patch
+                    patch = image.crop((x1, y1, x2, y2))
+                    patch = patch.resize((patch_size, patch_size), Image.LANCZOS)
+                    
+                    patches.append(patch)
+                    patch_info.append({
+                        'filename': filename,
+                        'bbox': (x1, y1, x2, y2),
+                        'confidence': pred_raw[i, 4]
+                    })
     
-    # Add text annotations
-    thresh = cm.max() / 2.
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            plt.text(j, i, format(cm[i, j], 'd'),
-                    horizontalalignment="center",
-                    color="white" if cm[i, j] > thresh else "black",
-                    fontsize=14)
-    
-    # Set labels with class numbers only
-    tick_marks = np.arange(num_classes)
-    plt.xticks(tick_marks, range(num_classes))
-    plt.yticks(tick_marks, range(num_classes))
-    
-    plt.ylabel('Wahre Klasse', fontweight='bold')
-    plt.xlabel('Vorhergesagte Klasse', fontweight='bold')
-    plt.tight_layout()
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    return patches, patch_info
 
-# Function to create latency histogram
-def create_latency_histogram(latencies, model_name, save_path_with_stats, save_path_without_stats):
-    mean_latency = np.mean(latencies)
-    median_latency = np.median(latencies)
-    std_latency = np.std(latencies)
-    
-    # Histogram WITH statistics
-    plt.figure(figsize=(12, 8))
-    plt.hist(latencies, bins=50, alpha=0.7, color='steelblue', edgecolor='black')
-    
-    # Add vertical lines for mean and median
-    plt.axvline(mean_latency, color='red', linestyle='--', linewidth=2, label=f'Mittelwert: {mean_latency:.2f} ms')
-    plt.axvline(median_latency, color='green', linestyle='--', linewidth=2, label=f'Median: {median_latency:.2f} ms')
-    
-    plt.title(f'Latenz-Verteilung - {model_name} (mit Statistiken)', fontsize=16, fontweight='bold')
-    plt.xlabel('Latenz pro Bild (ms)', fontweight='bold')
-    plt.ylabel('Häufigkeit', fontweight='bold')
-    plt.legend()
-    plt.grid(alpha=0.3)
-    
-    # Add statistics text box
-    stats_text = f'Statistiken:\nMittelwert: {mean_latency:.2f} ms\nMedian: {median_latency:.2f} ms\nStd.-Abw.: {std_latency:.2f} ms\nMin: {min(latencies):.2f} ms\nMax: {max(latencies):.2f} ms'
-    plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
-             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-    
-    plt.tight_layout()
-    plt.savefig(save_path_with_stats, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Histogram WITHOUT statistics
-    plt.figure(figsize=(12, 8))
-    plt.hist(latencies, bins=50, alpha=0.7, color='steelblue', edgecolor='black')
-    
-    plt.title(f'Latenz-Verteilung - {model_name}', fontsize=16, fontweight='bold')
-    plt.xlabel('Latenz pro Bild (ms)', fontweight='bold')
-    plt.ylabel('Häufigkeit', fontweight='bold')
-    plt.grid(alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(save_path_without_stats, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    return mean_latency
-
-# Real-time evaluation function
-def realtime_evaluation_binary(binary_model, classifier_model, test_loader, model_name, warmup_batches=10):
-    binary_model.eval()
-    classifier_model.eval()
+# Real-time evaluation function (adapted from GTSRB script)
+def realtime_evaluation_detailed(model, test_loader, model_name, warmup_batches=10):
+    model.eval()
     
     # Warmup phase
     print(f"Warmup für {model_name}...")
     with torch.no_grad():
-        for i, (data, _) in enumerate(test_loader):
+        for i, (data, _, _) in enumerate(test_loader):
             if i >= warmup_batches:
                 break
             data = data.to(device)
-            _ = binary_model(data)
-            _ = classifier_model(data)
+            _ = model(data)
             torch.cuda.synchronize() if torch.cuda.is_available() else None
     
     # Realistic single-image latency measurement
@@ -501,10 +542,10 @@ def realtime_evaluation_binary(binary_model, classifier_model, test_loader, mode
     per_image_latencies = []
     total_samples = 0
     total_time = 0
-    max_samples = 1000
+    max_samples = 500  # Limit for reasonable test duration
     
     with torch.no_grad():
-        for batch_data, _ in test_loader:
+        for batch_data, _, _ in test_loader:
             # Process each image individually for realistic latency
             for single_image in batch_data:
                 if total_samples >= max_samples:
@@ -513,10 +554,9 @@ def realtime_evaluation_binary(binary_model, classifier_model, test_loader, mode
                 # Single image processing (batch_size = 1)
                 single_image = single_image.unsqueeze(0).to(device)
                 
-                # Measure time for combined pipeline
+                # Measure time for single image
                 start_time = time.time()
-                _ = binary_model(single_image)  # Detection
-                _ = classifier_model(single_image)  # Classification
+                _ = model(single_image)
                 torch.cuda.synchronize() if torch.cuda.is_available() else None
                 end_time = time.time()
                 
@@ -531,281 +571,377 @@ def realtime_evaluation_binary(binary_model, classifier_model, test_loader, mode
                 break
     
     # Calculate throughput
-    throughput = total_samples / total_time if total_time > 0 else 0
+    throughput = total_samples / total_time if total_time > 0 else 0  # samples per second
     
     return per_image_latencies, throughput
 
-# Load datasets
-print("Lade Datensätze...")
+# Latency histogram function (adapted from GTSRB script)
+def create_latency_histogram(latencies, model_name, save_path_with_stats, save_path_without_stats):
+    mean_latency = np.mean(latencies)
+    median_latency = np.median(latencies)
+    std_latency = np.std(latencies)
+    
+    # Separate latencies <= 50ms and > 50ms (adjusted for localization)
+    latencies_filtered = [lat for lat in latencies if lat <= 50.0]
+    latencies_over_50ms = [lat for lat in latencies if lat > 50.0]
+    
+    print(f"{model_name}: {len(latencies_over_50ms)} von {len(latencies)} Samples über 50ms ({len(latencies_over_50ms)/len(latencies)*100:.1f}%)")
+    
+    # Create bins: 0-50ms in regular intervals, plus one bin for >50ms
+    regular_bins = np.linspace(0, 50, 40)  # 39 bins from 0-50ms
+    
+    # Histogram WITH statistics
+    plt.figure(figsize=(12, 8))
+    
+    # Create histogram for ≤50ms data
+    n, bins, patches = plt.hist(latencies_filtered, bins=regular_bins, alpha=0.7, 
+                               color='steelblue', edgecolor='black')
+    
+    # Add the >50ms bin manually
+    if len(latencies_over_50ms) > 0:
+        bin_width = regular_bins[1] - regular_bins[0]
+        plt.bar(50.0, len(latencies_over_50ms), width=bin_width, 
+               alpha=0.7, color='red', edgecolor='black', label=f'>50ms (n={len(latencies_over_50ms)})')
+    
+    # Set y-axis to log scale
+    plt.yscale('log')
+    
+    # Add vertical lines for mean and median
+    if mean_latency <= 50.0:
+        plt.axvline(mean_latency, color='red', linestyle='--', linewidth=2, 
+                   label=f'Mittelwert: {mean_latency:.2f} ms')
+    if median_latency <= 50.0:
+        plt.axvline(median_latency, color='green', linestyle='--', linewidth=2, 
+                   label=f'Median: {median_latency:.2f} ms')
+    
+    plt.title(f'Latenz-Verteilung - {model_name} (mit Statistiken)', fontsize=16, fontweight='bold')
+    plt.xlabel('Latenz pro Bild (ms)', fontweight='bold')
+    plt.ylabel('Häufigkeit (log scale)', fontweight='bold')
+    
+    plt.xlim(0, 52)
+    xticks = list(np.arange(0, 55, 10))
+    xtick_labels = [f'{x:.0f}' if x <= 50.0 else '>50' for x in xticks]
+    xtick_labels[-1] = '>50'
+    plt.xticks(xticks, xtick_labels)
+    
+    plt.grid(alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(save_path_without_stats, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return mean_latency
 
+# Classification with GTSRB model
+class GTSRBClassifier:
+    def __init__(self, model_path, device):
+        self.device = device
+        self.model = self._load_model(model_path)
+        self.transform = transforms.Compose([
+            transforms.Resize((64, 64)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+        ])
+    
+    def _load_model(self, model_path):
+        # Load the GTSRB model architecture (same as original script)
+        class TrafficSignCNN(nn.Module):
+            def __init__(self, num_classes=43):
+                super(TrafficSignCNN, self).__init__()
+                self.features = nn.Sequential(
+                    nn.Conv2d(3, 32, kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(kernel_size=2, stride=2),
+                    
+                    nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(kernel_size=2, stride=2),
+                    
+                    nn.Conv2d(64, 128, kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(kernel_size=2, stride=2),
+                    
+                    nn.Conv2d(128, 256, kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(kernel_size=2, stride=2),
+                )
+                
+                self.classifier = nn.Sequential(
+                    nn.Dropout(0.5),
+                    nn.Linear(256 * 4 * 4, 512),
+                    nn.ReLU(inplace=True),
+                    nn.Dropout(0.5),
+                    nn.Linear(512, num_classes)
+                )
+            
+            def forward(self, x):
+                x = self.features(x)
+                x = x.view(x.size(0), -1)
+                x = self.classifier(x)
+                return x
+        
+        model = TrafficSignCNN(num_classes=43).to(self.device)
+        model.load_state_dict(torch.load(model_path, map_location=self.device))
+        model.eval()
+        return model
+    
+    def classify_patches(self, patches):
+        """Classify extracted patches"""
+        if not patches:
+            return []
+        
+        classifications = []
+        
+        with torch.no_grad():
+            for patch in patches:
+                # Transform patch
+                patch_tensor = self.transform(patch).unsqueeze(0).to(self.device)
+                
+                # Get prediction
+                output = self.model(patch_tensor)
+                probabilities = torch.softmax(output, dim=1)
+                confidence, predicted_class = torch.max(probabilities, 1)
+                
+                classifications.append({
+                    'class': predicted_class.item(),
+                    'confidence': confidence.item()
+                })
+        
+        return classifications
+
+# Main execution
+print("=== GTSDB VERKEHRSSCHILDER-LOKALISATION ===")
+
+# Load datasets
+print("Lade GTSDB-Datensätze...")
+
+# GTSDB Training dataset
 gtsdb_train_dataset = GTSDBDataset(
-    root_dir=r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Train',
-    annotation_file=r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Train\gt-train.txt',
+    root_dir=r'C:\Users\timau\Desktop\Datensätze\GTSDB\Train',
+    gt_file=r'C:\Users\timau\Desktop\Datensätze\GTSDB\gt-train.txt',
     transform=train_transform,
-    is_train=True
+    max_objects=10
 )
 
+# GTSDB Test dataset
 gtsdb_test_dataset = GTSDBDataset(
-    root_dir=r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Test',
-    annotation_file=r'C:\Users\timau\Desktop\Datensaetze\GTSDB\gt-test.txt',
+    root_dir=r'C:\Users\timau\Desktop\Datensätze\GTSDB\Test', 
+    gt_file=r'C:\Users\timau\Desktop\Datensätze\GTSDB\gt-test.txt',
     transform=test_transform,
-    is_train=False
+    max_objects=10
 )
 
 # Dataset information
 print("\n=== DATENSATZ INFORMATIONEN ===")
-print(f"GTSDB Training: {len(gtsdb_train_dataset)} Samples, 2 Klassen")
-print(f"GTSDB Test: {len(gtsdb_test_dataset)} Samples, 2 Klassen")
+print(f"GTSDB Training: {len(gtsdb_train_dataset)} Bilder")
+print(f"GTSDB Test: {len(gtsdb_test_dataset)} Bilder")
 
 # Train/Validation split
 train_size = int(0.8 * len(gtsdb_train_dataset))
 val_size = len(gtsdb_train_dataset) - train_size
 gtsdb_train_split, gtsdb_val_split = random_split(gtsdb_train_dataset, [train_size, val_size])
 
-gtsdb_train_loader = DataLoader(gtsdb_train_split, batch_size=16, shuffle=True)
-gtsdb_val_loader = DataLoader(gtsdb_val_split, batch_size=16, shuffle=False)
-gtsdb_test_loader = DataLoader(gtsdb_test_dataset, batch_size=16, shuffle=False)
+# Data loaders
+train_loader = DataLoader(gtsdb_train_split, batch_size=8, shuffle=True, num_workers=2)
+val_loader = DataLoader(gtsdb_val_split, batch_size=8, shuffle=False, num_workers=2)
+test_loader = DataLoader(gtsdb_test_dataset, batch_size=4, shuffle=False, num_workers=2)
 
-# Train binary classification model
-print("\n=== GTSDB MODELL TRAINING ===")
-binary_model = TrafficSignBinaryClassifier().to(device)
+print(f"Training Batches: {len(train_loader)}")
+print(f"Validation Batches: {len(val_loader)}")
+print(f"Test Batches: {len(test_loader)}")
+
+# Initialize localization model
+print("\n=== MODELL INITIALISIERUNG ===")
+localization_model = LocalizationCNN(max_objects=10).to(device)
 
 # Count parameters
-binary_total_params = sum(p.numel() for p in binary_model.parameters())
-print(f"GTSDB Binary Modell Parameter: {binary_total_params:,}")
+total_params = sum(p.numel() for p in localization_model.parameters())
+trainable_params = sum(p.numel() for p in localization_model.parameters() if p.requires_grad)
+print(f"Lokalisations-Modell Parameter: {total_params:,}")
+print(f"Trainierbare Parameter: {trainable_params:,}")
 
-binary_best_acc = train_binary_classifier(binary_model, gtsdb_train_loader, gtsdb_val_loader, num_epochs=25, monitor=monitor)
-
-# Save binary classification model
-torch.save(binary_model.state_dict(), r'C:\Users\timau\Desktop\gtsdb_binary_model.pth')
-
-# Function to classify detected signs with GTSRB model
-def classify_detected_signs(binary_model, classifier_model, test_loader, threshold=0.5):
-    """
-    Use binary model to detect signs, then classify detected signs with GTSRB classifier
-    """
-    binary_model.eval()
-    classifier_model.eval()
-    
-    detected_signs = []
-    sign_classifications = []
-    actual_labels = []  # For evaluation (we'll use a dummy approach)
-    
-    with torch.no_grad():
-        for batch_data, batch_labels in test_loader:
-            batch_data = batch_data.to(device)
-            
-            # Step 1: Binary detection
-            binary_output = binary_model(batch_data)
-            binary_probs = torch.softmax(binary_output, dim=1)
-            _, binary_pred = torch.max(binary_probs, 1)
-            
-            # Step 2: Classify only detected signs (binary_pred == 1)
-            for i, (data, binary_prediction, original_label) in enumerate(zip(batch_data, binary_pred, batch_labels)):
-                if binary_prediction == 1:  # Sign detected
-                    # Classify the sign
-                    single_image = data.unsqueeze(0)
-                    class_output = classifier_model(single_image)
-                    _, predicted_class = torch.max(class_output, 1)
-                    
-                    detected_signs.append(1)  # Sign was detected
-                    sign_classifications.append(predicted_class.item())
-                    # For evaluation, we'll use a random class (since we don't have ground truth GTSRB labels)
-                    actual_labels.append(np.random.randint(0, 43))  # Dummy labels for demo
-                else:
-                    detected_signs.append(0)  # No sign detected
-    
-    return detected_signs, sign_classifications, actual_labels
-
-# Evaluation function for sign classification pipeline
-def evaluate_sign_classification_pipeline(binary_model, classifier_model, test_loader):
-    """
-    Evaluate the complete pipeline: detection + classification
-    """
-    binary_model.eval()
-    classifier_model.eval()
-    
-    # Binary detection metrics
-    binary_predictions = []
-    binary_targets = []
-    
-    # Classification metrics (only for detected signs)
-    classification_predictions = []
-    classification_targets = []
-    
-    total_images = 0
-    signs_detected = 0
-    signs_classified = 0
-    
-    with torch.no_grad():
-        for batch_data, batch_binary_labels in test_loader:
-            batch_data = batch_data.to(device)
-            batch_binary_labels = batch_binary_labels.to(device)
-            
-            # Binary detection
-            binary_output = binary_model(batch_data)
-            _, binary_pred = torch.max(binary_output, 1)
-            
-            binary_predictions.extend(binary_pred.cpu().numpy())
-            binary_targets.extend(batch_binary_labels.cpu().numpy())
-            
-            total_images += len(batch_data)
-            
-            # For each detected sign, perform classification
-            for i, (single_data, binary_prediction, true_binary_label) in enumerate(zip(batch_data, binary_pred, batch_binary_labels)):
-                if binary_prediction == 1:  # Sign detected
-                    signs_detected += 1
-                    
-                    # Classify the detected sign
-                    single_image = single_data.unsqueeze(0)
-                    class_output = classifier_model(single_image)
-                    _, predicted_class = torch.max(class_output, 1)
-                    
-                    classification_predictions.append(predicted_class.item())
-                    # Generate dummy ground truth for classification (since we don't have real GTSRB labels)
-                    classification_targets.append(np.random.randint(0, 43))
-                    signs_classified += 1
-    
-    # Calculate binary detection metrics
-    binary_accuracy = accuracy_score(binary_targets, binary_predictions)
-    binary_precision, binary_recall, binary_f1, _ = precision_recall_fscore_support(
-        binary_targets, binary_predictions, average='weighted'
-    )
-    
-    # Calculate classification metrics (only for detected signs)
-    if len(classification_predictions) > 0:
-        class_accuracy = accuracy_score(classification_targets, classification_predictions)
-        class_precision, class_recall, class_f1, _ = precision_recall_fscore_support(
-            classification_targets, classification_predictions, average='weighted'
-        )
-    else:
-        class_accuracy = class_precision = class_recall = class_f1 = 0.0
-    
-    # Pipeline statistics
-    detection_rate = signs_detected / total_images if total_images > 0 else 0
-    classification_rate = signs_classified / signs_detected if signs_detected > 0 else 0
-    
-    return {
-        'binary_accuracy': binary_accuracy,
-        'binary_precision': binary_precision, 
-        'binary_recall': binary_recall,
-        'binary_f1': binary_f1,
-        'classification_accuracy': class_accuracy,
-        'classification_precision': class_precision,
-        'classification_recall': class_recall,
-        'classification_f1': class_f1,
-        'total_images': total_images,
-        'signs_detected': signs_detected,
-        'signs_classified': signs_classified,
-        'detection_rate': detection_rate,
-        'classification_rate': classification_rate
-    }
-
-# Load GTSRB classification model
-print("\nLade GTSRB Klassifikationsmodell...")
-gtsrb_num_classes = 43  # GTSRB has 43 classes
-classification_model = TrafficSignCNN(gtsrb_num_classes).to(device)
-
-# Try to load pre-trained GTSRB model
-try:
-    classification_model.load_state_dict(torch.load(r'C:\Users\timau\Desktop\gtsrb_model.pth'))
-    print("GTSRB-Modell erfolgreich geladen")
-except FileNotFoundError:
-    print("GTSRB-Modell nicht gefunden. Verwende zufällig initialisiertes Modell.")
-
-# Evaluation
-print("\n=== MODELL EVALUATION ===")
-
-binary_accuracy, binary_precision, binary_recall, binary_f1, binary_predictions, binary_targets, binary_confidences = evaluate_binary_classifier(
-    binary_model, gtsdb_test_loader
+# Train localization model
+print("\n=== LOKALISATIONS-MODELL TRAINING ===")
+best_val_loss = train_localization_model(
+    localization_model, train_loader, val_loader, 
+    num_epochs=100, lr=0.001, monitor=monitor
 )
 
-# Results table
-results_data = {
-    'Model': ['GTSDB Binary Classification'],
-    'Accuracy': [f'{binary_accuracy:.4f}'],
-    'Precision': [f'{binary_precision:.4f}'],
-    'Recall': [f'{binary_recall:.4f}'],
-    'F1-Score': [f'{binary_f1:.4f}']
-}
+# Save localization model
+model_save_path = r'C:\Users\timau\Desktop\gtsdb_localization_model.pth'
+torch.save(localization_model.state_dict(), model_save_path)
+print(f"Lokalisations-Modell gespeichert: {model_save_path}")
 
-results_df = pd.DataFrame(results_data)
-print("\nEvaluierungsergebnisse:")
-print(results_df.to_string(index=False))
+# Evaluate localization model
+print("\n=== LOKALISATIONS-EVALUATION ===")
+precision, recall, f1_score, detection_results = evaluate_localization_model(
+    localization_model, test_loader, iou_threshold=0.5, conf_threshold=0.3
+)
 
-# Confidence Analysis
-print("\n=== KONFIDENZ ANALYSE ===")
-print(f"\nGTSDB Binary Classification - Durchschnittliche Konfidenz pro Klasse:")
-binary_conf_sorted = sorted(binary_confidences.items())
-for class_id, confidence in binary_conf_sorted:
-    class_name = "Kein Schild" if class_id == 0 else "Schild"
-    print(f"Klasse {class_id} ({class_name}): {confidence:.4f}")
+print(f"Lokalisations-Performance:")
+print(f"Precision: {precision:.4f}")
+print(f"Recall: {recall:.4f}")
+print(f"F1-Score: {f1_score:.4f}")
 
-# Pipeline Evaluation: Detection + Classification
-print("\n=== PIPELINE EVALUATION: DETEKTION + KLASSIFIKATION ===")
+# Create detection visualizations
+print("\nErstelle Lokalisations-Visualisierungen...")
+vis_save_dir = r'C:\Users\timau\Desktop\detection_visualizations'
+visualize_detections(detection_results, vis_save_dir, max_images=10)
 
-pipeline_results = evaluate_sign_classification_pipeline(binary_model, classification_model, gtsdb_test_loader)
+# Extract patches for classification
+print("\n=== PATCH-EXTRAKTION FÜR KLASSIFIKATION ===")
+patches, patch_info = extract_patches_for_classification(
+    detection_results, patch_size=64, conf_threshold=0.3
+)
+print(f"Extrahierte Patches: {len(patches)}")
 
-print(f"\nPipeline Statistiken:")
-print(f"Gesamt Bilder: {pipeline_results['total_images']}")
-print(f"Schilder detektiert: {pipeline_results['signs_detected']}")
-print(f"Schilder klassifiziert: {pipeline_results['signs_classified']}")
-print(f"Detektionsrate: {pipeline_results['detection_rate']:.2%}")
-print(f"Klassifikationsrate: {pipeline_results['classification_rate']:.2%}")
+# Load GTSRB classifier and classify patches
+print("\n=== SCHILDKLASSIFIZIERUNG ===")
+try:
+    gtsrb_classifier = GTSRBClassifier(
+        model_path=r'C:\Users\timau\Desktop\gtsrb_model.pth',
+        device=device
+    )
+    
+    classifications = gtsrb_classifier.classify_patches(patches)
+    
+    # Classification results
+    print("Klassifizierungsergebnisse:")
+    for i, (patch_info_item, classification) in enumerate(zip(patch_info, classifications)):
+        print(f"Patch {i+1}: Klasse {classification['class']}, "
+              f"Konfidenz: {classification['confidence']:.3f}, "
+              f"Datei: {patch_info_item['filename']}")
+    
+    # Classification statistics
+    if classifications:
+        class_counts = {}
+        confidences = []
+        
+        for cls in classifications:
+            class_id = cls['class']
+            confidence = cls['confidence']
+            
+            class_counts[class_id] = class_counts.get(class_id, 0) + 1
+            confidences.append(confidence)
+        
+        print(f"\nKlassifizierungs-Statistiken:")
+        print(f"Durchschnittliche Konfidenz: {np.mean(confidences):.3f}")
+        print(f"Erkannte Klassen: {sorted(class_counts.keys())}")
+        print(f"Häufigste Klasse: {max(class_counts, key=class_counts.get)} "
+              f"({class_counts[max(class_counts, key=class_counts.get)]} mal)")
 
-print(f"\nDetektion (Binär) Metriken:")
-print(f"Accuracy: {pipeline_results['binary_accuracy']:.4f}")
-print(f"Precision: {pipeline_results['binary_precision']:.4f}")
-print(f"Recall: {pipeline_results['binary_recall']:.4f}")
-print(f"F1-Score: {pipeline_results['binary_f1']:.4f}")
-
-print(f"\nKlassifikation (GTSRB) Metriken:")
-print(f"Accuracy: {pipeline_results['classification_accuracy']:.4f}")
-print(f"Precision: {pipeline_results['classification_precision']:.4f}")
-print(f"Recall: {pipeline_results['classification_recall']:.4f}")
-print(f"F1-Score: {pipeline_results['classification_f1']:.4f}")
-
-# Note about dummy labels
-print(f"\nHinweis: Klassifikations-Metriken verwenden Dummy-Labels für Demonstration,")
-print(f"da GTSDB keine GTSRB-Klassifikations-Ground-Truth enthält.")
-
-# Create visualizations
-print("\n=== ERSTELLE VISUALISIERUNGEN ===")
-
-# Confusion matrix
-print("Erstelle Konfusionsmatrix...")
-create_confusion_matrix(binary_targets, binary_predictions, 
-                       2,  # Binary classification
-                       "GTSDB Binary Classification", 
-                       r'C:\Users\timau\Desktop\gtsdb_confusion_matrix.png')
+except Exception as e:
+    print(f"Fehler beim Laden des GTSRB-Modells: {e}")
+    print("Überspringe Klassifizierung...")
 
 # Real-time performance evaluation
 print("\n=== ECHTZEIT-PERFORMANCE EVALUATION ===")
 
-combined_latencies, combined_throughput = realtime_evaluation_binary(
-    binary_model, classification_model, gtsdb_test_loader, "GTSDB Pipeline"
+# Localization model latency
+loc_latencies, loc_throughput = realtime_evaluation_detailed(
+    localization_model, test_loader, "GTSDB-Lokalisation"
 )
 
 # Create latency histograms
 print("Erstelle Latenz-Histogramme...")
-combined_mean_lat = create_latency_histogram(
-    combined_latencies, "GTSDB Pipeline (Detection + Classification)",
-    r'C:\Users\timau\Desktop\gtsdb_latency_histogram_mit_statistiken.png',
-    r'C:\Users\timau\Desktop\gtsdb_latency_histogram.png'
+loc_mean_lat = create_latency_histogram(
+    loc_latencies, "GTSDB-Lokalisation",
+    r'C:\Users\timau\Desktop\gtsdb_localization_latency_histogram_mit_statistiken.png',
+    r'C:\Users\timau\Desktop\gtsdb_localization_latency_histogram.png'
 )
 
-# Print real-time performance summary
-print("\n=== ECHTZEIT-PERFORMANCE ZUSAMMENFASSUNG ===")
-print(f"GTSDB Pipeline: {combined_mean_lat:.2f} ms Latenz, {combined_throughput:.1f} Samples/s Durchsatz")
+# Combined system evaluation (localization + classification)
+print("\n=== KOMBINIERTE SYSTEM-EVALUATION ===")
+
+if 'gtsrb_classifier' in locals():
+    print("Messe End-to-End Latenz (Lokalisation + Klassifikation)...")
+    
+    combined_latencies = []
+    total_samples = 0
+    max_samples = 100
+    
+    with torch.no_grad():
+        for batch_data, _, filenames in test_loader:
+            for single_image, filename in zip(batch_data, filenames):
+                if total_samples >= max_samples:
+                    break
+                
+                # Single image processing
+                single_image = single_image.unsqueeze(0).to(device)
+                
+                # Measure combined time
+                start_time = time.time()
+                
+                # Localization
+                predictions = localization_model(single_image)
+                torch.cuda.synchronize() if torch.cuda.is_available() else None
+                
+                # Extract patches (simulation)
+                pred = predictions[0].cpu().numpy()
+                patch_count = 0
+                for i in range(pred.shape[0]):
+                    if pred[i, 4] > 0.3:  # confidence threshold
+                        patch_count += 1
+                
+                # Simulate classification time (based on patch count)
+                if patch_count > 0:
+                    dummy_patches = [Image.new('RGB', (64, 64))] * patch_count
+                    _ = gtsrb_classifier.classify_patches(dummy_patches[:3])  # max 3 patches
+                
+                torch.cuda.synchronize() if torch.cuda.is_available() else None
+                end_time = time.time()
+                
+                # Calculate combined latency
+                latency_ms = (end_time - start_time) * 1000
+                combined_latencies.append(latency_ms)
+                
+                total_samples += 1
+            
+            if total_samples >= max_samples:
+                break
+    
+    # Create combined latency histogram
+    combined_mean_lat = create_latency_histogram(
+        combined_latencies, "End-to-End (Lokalisation + Klassifikation)",
+        r'C:\Users\timau\Desktop\combined_system_latency_histogram_mit_statistiken.png',
+        r'C:\Users\timau\Desktop\combined_system_latency_histogram.png'
+    )
+    
+    print(f"End-to-End Performance: {combined_mean_lat:.2f} ms mittlere Latenz")
 
 # Create performance plots
-print("\nErstelle Leistungsdiagramme...")
+print("\nErstelle Systemleistungs-Diagramme...")
 monitor.create_performance_plots(r'C:\Users\timau\Desktop\gtsdb_systemleistung.png')
+
+# Performance summary
+print("\n=== PERFORMANCE ZUSAMMENFASSUNG ===")
+print(f"Lokalisations-Modell: {loc_mean_lat:.2f} ms Latenz, {loc_throughput:.1f} Bilder/s")
+if 'combined_mean_lat' in locals():
+    print(f"End-to-End System: {combined_mean_lat:.2f} ms Latenz")
+
+# Final results summary
+print(f"\n=== ENDERGEBNISSE ===")
+print(f"Lokalisations-Performance:")
+print(f"  - Precision: {precision:.4f}")
+print(f"  - Recall: {recall:.4f}")
+print(f"  - F1-Score: {f1_score:.4f}")
+print(f"  - Latenz: {loc_mean_lat:.2f} ms")
+
+if 'classifications' in locals() and classifications:
+    print(f"Klassifizierung:")
+    print(f"  - {len(patches)} Patches extrahiert")
+    print(f"  - Durchschnittliche Konfidenz: {np.mean([c['confidence'] for c in classifications]):.3f}")
 
 # Total execution time
 total_time = time.time() - start_time
 print(f"\nGesamte Ausführungszeit: {total_time/60:.2f} Minuten")
-print("Gespeicherte Dateien:")
-print("- gtsdb_systemleistung.png")
-print("- gtsdb_confusion_matrix.png") 
-print("- gtsdb_latency_histogram.png, gtsdb_latency_histogram_mit_statistiken.png")
+
+print("\nGespeicherte Dateien:")
+print("- gtsdb_localization_model.pth")
+print("- gtsdb_systemleistung.png") 
+print("- gtsdb_localization_latency_histogram.png")
+print("- gtsdb_localization_latency_histogram_mit_statistiken.png")
+if 'combined_mean_lat' in locals():
+    print("- combined_system_latency_histogram.png")
+    print("- combined_system_latency_histogram_mit_statistiken.png")
+print("- detection_visualizations/ (Ordner mit Visualisierungen)")
