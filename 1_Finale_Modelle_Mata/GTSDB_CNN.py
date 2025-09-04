@@ -110,15 +110,12 @@ print(f"Device: {device}")
 
 # Data transformations for localization
 train_transform = transforms.Compose([
-    transforms.Resize((800, 1360)),  # Keep original aspect ratio
-    transforms.RandomHorizontalFlip(p=0.3),
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
     transforms.ToTensor(),
     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 ])
 
 test_transform = transforms.Compose([
-    transforms.Resize((800, 1360)),
     transforms.ToTensor(),
     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 ])
@@ -218,23 +215,16 @@ class LocalizationCNN(nn.Module):
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            # Fifth block
-            nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
             nn.AdaptiveAvgPool2d((7, 7))
         )
         
         # Detection head
         self.detection_head = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(512 * 7 * 7, 1024),
+            nn.Dropout(0.8),
+            nn.Linear(256 * 7 * 7, 64),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(1024, 512),
-            nn.ReLU(inplace=True),
-            nn.Linear(512, max_objects * 5)  # 5 values per object: x1,y1,x2,y2,objectness
+            nn.Dropout(0.8),
+            nn.Linear(64, max_objects * 5)   # 5 = [x1, y1, x2, y2, objectness]
         )
         
     def forward(self, x):
@@ -254,7 +244,7 @@ class LocalizationCNN(nn.Module):
 
 # Custom loss function for localization
 class LocalizationLoss(nn.Module):
-    def __init__(self, coord_weight=5.0, obj_weight=1.0, noobj_weight=0.5):
+    def __init__(self, coord_weight=1.0, obj_weight=2.0, noobj_weight=0.1):
         super(LocalizationLoss, self).__init__()
         self.coord_weight = coord_weight
         self.obj_weight = obj_weight
@@ -296,9 +286,9 @@ class LocalizationLoss(nn.Module):
         return total_loss
 
 # Training function
-def train_localization_model(model, train_loader, val_loader, num_epochs=100, lr=0.001, monitor=None):
+def train_localization_model(model, train_loader, val_loader, num_epochs=20, lr=0.001, monitor=None):
     criterion = LocalizationLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
     
     best_val_loss = float('inf')
     
@@ -438,9 +428,9 @@ def visualize_detections(detection_results, save_dir, max_images=10):
         gt_boxes = result['gt_boxes']
         
         # Load original image
-        img_path = os.path.join(r'C:\Users\timau\Desktop\Datensätze\GTSDB\Test', filename)
+        img_path = os.path.join(r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Test', filename)
         if not os.path.exists(img_path):
-            img_path = os.path.join(r'C:\Users\timau\Desktop\Datensätze\GTSDB\Train', filename)
+            img_path = os.path.join(r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Train', filename)
         
         if os.path.exists(img_path):
             image = Image.open(img_path).convert('RGB')
@@ -494,9 +484,9 @@ def extract_patches_for_classification(detection_results, patch_size=64, conf_th
         pred_raw = result['pred_raw']
         
         # Load original image
-        img_path = os.path.join(r'C:\Users\timau\Desktop\Datensätze\GTSDB\Test', filename)
+        img_path = os.path.join(r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Test', filename)
         if not os.path.exists(img_path):
-            img_path = os.path.join(r'C:\Users\timau\Desktop\Datensätze\GTSDB\Train', filename)
+            img_path = os.path.join(r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Train', filename)
         
         if os.path.exists(img_path):
             image = Image.open(img_path).convert('RGB')
@@ -717,16 +707,16 @@ print("Lade GTSDB-Datensätze...")
 
 # GTSDB Training dataset
 gtsdb_train_dataset = GTSDBDataset(
-    root_dir=r'C:\Users\timau\Desktop\Datensätze\GTSDB\Train',
-    gt_file=r'C:\Users\timau\Desktop\Datensätze\GTSDB\gt-train.txt',
+    root_dir=r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Train',
+    gt_file=r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Train\gt-train.txt',
     transform=train_transform,
     max_objects=10
 )
 
 # GTSDB Test dataset
 gtsdb_test_dataset = GTSDBDataset(
-    root_dir=r'C:\Users\timau\Desktop\Datensätze\GTSDB\Test', 
-    gt_file=r'C:\Users\timau\Desktop\Datensätze\GTSDB\gt-test.txt',
+    root_dir=r'C:\Users\timau\Desktop\Datensaetze\GTSDB\Test', 
+    gt_file=r'C:\Users\timau\Desktop\Datensaetze\GTSDB\gt-test.txt',
     transform=test_transform,
     max_objects=10
 )
@@ -742,9 +732,9 @@ val_size = len(gtsdb_train_dataset) - train_size
 gtsdb_train_split, gtsdb_val_split = random_split(gtsdb_train_dataset, [train_size, val_size])
 
 # Data loaders
-train_loader = DataLoader(gtsdb_train_split, batch_size=8, shuffle=True, num_workers=2)
-val_loader = DataLoader(gtsdb_val_split, batch_size=8, shuffle=False, num_workers=2)
-test_loader = DataLoader(gtsdb_test_dataset, batch_size=4, shuffle=False, num_workers=2)
+train_loader = DataLoader(gtsdb_train_split, batch_size=8, shuffle=True, num_workers=0)
+val_loader = DataLoader(gtsdb_val_split, batch_size=8, shuffle=False, num_workers=0)
+test_loader = DataLoader(gtsdb_test_dataset, batch_size=4, shuffle=False, num_workers=0)
 
 print(f"Training Batches: {len(train_loader)}")
 print(f"Validation Batches: {len(val_loader)}")
@@ -764,7 +754,7 @@ print(f"Trainierbare Parameter: {trainable_params:,}")
 print("\n=== LOKALISATIONS-MODELL TRAINING ===")
 best_val_loss = train_localization_model(
     localization_model, train_loader, val_loader, 
-    num_epochs=100, lr=0.001, monitor=monitor
+    num_epochs=20, lr=0.001, monitor=monitor
 )
 
 # Save localization model
