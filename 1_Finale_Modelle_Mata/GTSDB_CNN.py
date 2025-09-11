@@ -110,6 +110,7 @@ print(f"Device: {device}")
 
 # Data transformations for localization
 train_transform = transforms.Compose([
+    transforms.Resize((1360, 800)),
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
     transforms.ToTensor(),
     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
@@ -220,31 +221,32 @@ class LocalizationCNN(nn.Module):
         
         # Detection head
         self.detection_head = nn.Sequential(
-            nn.Dropout(0.8),
-            nn.Linear(256 * 7 * 7, 64),
+            nn.Dropout(0.5),
+            nn.Linear(256 * 7 * 7, 512),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.8),
-            nn.Linear(64, max_objects * 5)   # 5 = [x1, y1, x2, y2, objectness]
+            nn.Dropout(0.5),
+            nn.Linear(512, 256),
+            nn.Linear(256, max_objects * 5)   # 5 = [x1, y1, x2, y2, objectness]
         )
         
     def forward(self, x):
         # Extract features
         features = self.backbone(x)
         features = features.view(features.size(0), -1)
-        
-        # Detection predictions
+    
+        features = self.backbone(x)
+        features = features.view(features.size(0), -1)
         detections = self.detection_head(features)
         detections = detections.view(-1, self.max_objects, 5)
-        
-        # Apply sigmoid to coordinates and objectness
-        detections[:, :, :4] = torch.sigmoid(detections[:, :, :4])  # coordinates 0-1
-        detections[:, :, 4] = torch.sigmoid(detections[:, :, 4])    # objectness 0-1
-        
+
+        detections[:, :, :4] = torch.sigmoid(detections[:, :, :4])
+        detections[:, :, 4] = torch.sigmoid(detections[:, :, 4])
+    
         return detections
 
 # Custom loss function for localization
 class LocalizationLoss(nn.Module):
-    def __init__(self, coord_weight=1.0, obj_weight=2.0, noobj_weight=0.1):
+    def __init__(self, coord_weight=5.0, obj_weight=0.5, noobj_weight=0.1):
         super(LocalizationLoss, self).__init__()
         self.coord_weight = coord_weight
         self.obj_weight = obj_weight
@@ -286,9 +288,9 @@ class LocalizationLoss(nn.Module):
         return total_loss
 
 # Training function
-def train_localization_model(model, train_loader, val_loader, num_epochs=20, lr=0.001, monitor=None):
+def train_localization_model(model, train_loader, val_loader, num_epochs=100, lr=0.001, monitor=None):
     criterion = LocalizationLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     
     best_val_loss = float('inf')
     
@@ -727,7 +729,7 @@ print(f"GTSDB Training: {len(gtsdb_train_dataset)} Bilder")
 print(f"GTSDB Test: {len(gtsdb_test_dataset)} Bilder")
 
 # Train/Validation split
-train_size = int(0.8 * len(gtsdb_train_dataset))
+train_size = int(0.9 * len(gtsdb_train_dataset))
 val_size = len(gtsdb_train_dataset) - train_size
 gtsdb_train_split, gtsdb_val_split = random_split(gtsdb_train_dataset, [train_size, val_size])
 
@@ -754,7 +756,7 @@ print(f"Trainierbare Parameter: {trainable_params:,}")
 print("\n=== LOKALISATIONS-MODELL TRAINING ===")
 best_val_loss = train_localization_model(
     localization_model, train_loader, val_loader, 
-    num_epochs=20, lr=0.001, monitor=monitor
+    num_epochs=100, lr=0.001, monitor=monitor
 )
 
 # Save localization model
@@ -765,7 +767,7 @@ print(f"Lokalisations-Modell gespeichert: {model_save_path}")
 # Evaluate localization model
 print("\n=== LOKALISATIONS-EVALUATION ===")
 precision, recall, f1_score, detection_results = evaluate_localization_model(
-    localization_model, test_loader, iou_threshold=0.5, conf_threshold=0.3
+    localization_model, test_loader, iou_threshold=0.5, conf_threshold=0.1
 )
 
 print(f"Lokalisations-Performance:")
