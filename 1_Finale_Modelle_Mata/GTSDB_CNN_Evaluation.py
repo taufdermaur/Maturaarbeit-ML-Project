@@ -209,7 +209,7 @@ class YOLOv5s(nn.Module):
         return [large_out, medium_out, small_out]
 
 # KORRIGIERTE Non-Maximum Suppression
-def non_max_suppression(predictions, conf_threshold=0.25, iou_threshold=0.45):
+def non_max_suppression(predictions, conf_threshold=0.8, iou_threshold=0.45):
     """Apply NMS to predictions - KORRIGIERT"""
     batch_detections = []
     
@@ -347,7 +347,7 @@ def calculate_map(detection_results, iou_thresholds=[0.5, 0.55, 0.6, 0.65, 0.7, 
     return np.mean(aps), aps
 
 # Evaluation function for YOLO
-def evaluate_yolo_model(model, test_loader, conf_threshold=0.25, iou_threshold=0.5):
+def evaluate_yolo_model(model, test_loader, conf_threshold=0.8, iou_threshold=0.5):
     model.eval()
     
     total_detections = 0
@@ -592,7 +592,7 @@ print(f"YOLO Modell geladen: {total_params:,} Parameter")
 # Evaluate YOLO model
 print("\n=== YOLO EVALUATION ===")
 precision, recall, f1_score, detection_results = evaluate_yolo_model(
-    yolo_model, test_loader, conf_threshold=0.25, iou_threshold=0.5
+    yolo_model, test_loader, conf_threshold=0.8, iou_threshold=0.5
 )
 
 # Calculate mAP
